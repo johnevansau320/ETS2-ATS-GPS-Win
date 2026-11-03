@@ -85,7 +85,7 @@ public sealed class CruiseAssist
             if (h == IntPtr.Zero) return false;
             GetWindowThreadProcessId(h, out uint pid);
             using var p = Process.GetProcessById((int)pid);
-            return p.ProcessName.Equals("eurotrucks2", StringComparison.OrdinalIgnoreCase);
+            return Games.All.Any(g => p.ProcessName.Equals(g.Process, StringComparison.OrdinalIgnoreCase));
         }
         catch { return false; }
     }

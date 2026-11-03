@@ -1,6 +1,6 @@
 {
-  "name": "ETS2 GPS",
-  "short_name": "ETS2 GPS",
+  "name": "ETS2-ATS GPS",
+  "short_name": "ETS2-ATS GPS",
   "start_url": ".",
   "display": "standalone",
   "orientation": "any",

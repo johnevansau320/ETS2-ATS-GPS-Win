@@ -27,6 +27,7 @@ public sealed class Detail
 public sealed class TruckState
 {
     public bool Connected, Paused;
+    public string GameName = "";      // "ETS2" or "ATS" (the server's game.gameName)
     public float X, Y, Z;               // Y = altitude in map metres
     public float ReportedHeadingDeg;
     public float SpeedKmh;
@@ -127,7 +128,7 @@ public static class Telemetry
         string destId = Str(job, "destinationCityId");
         var s = new TruckState
         {
-            Connected = Bool(game, "connected"), Paused = Bool(game, "paused"),
+            Connected = Bool(game, "connected"), Paused = Bool(game, "paused"), GameName = Str(game, "gameName"),
             X = (float)Num(pl, "x"), Y = (float)Num(pl, "y"), Z = (float)Num(pl, "z"), ReportedHeadingDeg = (float)Num(pl, "heading"),
             SpeedKmh = (float)Num(truck, "speed"), SpeedLimitKmh = (int)Math.Round(Num(nav, "speedLimit")),
             CruiseOn = Bool(truck, "cruiseControlOn"), CruiseKmh = (float)Num(truck, "cruiseControlSpeed"),

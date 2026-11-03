@@ -127,7 +127,7 @@ public sealed class MapData
 
     static MapData Parse(byte[] d)
     {
-        if (d[0] != 'E' || d[1] != 'T' || d[2] != 'S' || d[3] != 'M') throw new InvalidDataException("not an ETS2 GPS map file");
+        if (d[0] != 'E' || d[1] != 'T' || d[2] != 'S' || d[3] != 'M') throw new InvalidDataException("not an ETS2-ATS GPS map file");
         var m = new MapData { Version = U16(d, 4) };
         if (m.Version < 2 || m.Version > 10) throw new InvalidDataException($"unsupported map version {m.Version} (rebuild the map or update the app)");
         m.MinX = F32(d, 8); m.MinZ = F32(d, 12); m.MaxX = F32(d, 16); m.MaxZ = F32(d, 20);

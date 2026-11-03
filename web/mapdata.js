@@ -18,7 +18,7 @@ class MapData {
     const u8 = new Uint8Array(raw);
     let o = 0;
     const magic = String.fromCharCode(u8[0], u8[1], u8[2], u8[3]);
-    if (magic !== 'ETSM') throw new Error('not an ETS2 GPS map file');
+    if (magic !== 'ETSM') throw new Error('not an ETS2-ATS GPS map file');
     const ver = dv.getUint16(4, true);
     if (ver < 2 || ver > 10) throw new Error('unsupported map version ' + ver + ' (rebuild the map or update the app)');
     const m = new MapData();

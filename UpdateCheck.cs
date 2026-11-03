@@ -15,7 +15,7 @@ public sealed record UpdateInfo(Version Latest, string Tag, string PageUrl);
 /// </summary>
 public static class UpdateCheck
 {
-    public const string Repo = "johnevansau320/ETS2GPS-Win";
+    public const string Repo = "johnevansau320/ETS2-ATS-GPS-Win";
     public static string ReleasesPage => "https://github.com/" + Repo + "/releases/latest";
 
     public static Version Current

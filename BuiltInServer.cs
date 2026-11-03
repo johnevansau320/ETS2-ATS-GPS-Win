@@ -59,7 +59,7 @@ public sealed class BuiltInServer : IDisposable
         }
         catch (SocketException e)
         {
-            Problem = $"Port {Port} is in use (another ETS2 GPS or the old companion is running), so the tablet / browser server is off: {e.Message}";
+            Problem = $"Port {Port} is in use (another ETS2-ATS GPS or the old companion is running), so the tablet / browser server is off: {e.Message}";
             return false;
         }
         _ = Task.Run(AcceptLoop);
@@ -131,7 +131,7 @@ public sealed class BuiltInServer : IDisposable
                 case "/info":
                     {
                         var m = MapService.ReadMeta();
-                        string json = JsonSerializer.Serialize(new { name = "ets2-gps", port = Port, fingerprint = m?.Fingerprint ?? "", built = m?.Built ?? 0, bytes = m?.Bytes ?? 0, mods = m?.Mods ?? false });
+                        string json = JsonSerializer.Serialize(new { name = "ets2-gps", game = Games.Current.Id, port = Port, fingerprint = m?.Fingerprint ?? "", built = m?.Built ?? 0, bytes = m?.Bytes ?? 0, mods = m?.Mods ?? false });
                         await Reply(s, 200, "application/json", Encoding.UTF8.GetBytes(json));
                         return;
                     }
@@ -139,7 +139,7 @@ public sealed class BuiltInServer : IDisposable
                     {
                         if (!File.Exists(MapService.MapPath)) { await Reply(s, 404, "text/plain", Encoding.ASCII.GetBytes("map not built yet")); return; }
                         await using var f = new FileStream(MapService.MapPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                        await s.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {f.Length}\r\nX-Map-Built: {MapService.ReadMeta()?.Built ?? 0}\r\nConnection: close\r\n\r\n"));
+                        await s.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {f.Length}\r\nX-Map-Game: {Games.Current.Id}\r\nX-Map-Built: {MapService.ReadMeta()?.Built ?? 0}\r\nConnection: close\r\n\r\n"));
                         await f.CopyToAsync(s);
                         return;
                     }
@@ -209,7 +209,7 @@ public sealed class BuiltInServer : IDisposable
             string name = path == "/" ? "index.html" : path.TrimStart('/');
             if (name.Contains('/') || name.Contains('\\') || name.StartsWith('.')) { await Reply(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
             using var res = typeof(BuiltInServer).Assembly.GetManifestResourceStream("web/" + name);
-            if (res == null) { await Reply(s, 404, "text/plain", Encoding.ASCII.GetBytes("ETS2 GPS. Endpoints: /info, /map.bin, /api/telemetry, /lanes, / (web app)")); return; }
+            if (res == null) { await Reply(s, 404, "text/plain", Encoding.ASCII.GetBytes("ETS2-ATS GPS. Endpoints: /info, /map.bin, /api/telemetry, /lanes, / (web app)")); return; }
             using var ms = new MemoryStream();
             res.CopyTo(ms);
             await Reply(s, 200, Mime(name), ms.ToArray());

@@ -227,7 +227,7 @@ public sealed class ElevationChart : FrameworkElement
         {
             double y = t + (b - t) * k / 3;
             dc.DrawLine(grid, new Point(l, y), new Point(r, y));
-            var ft = T(Math.Round(hi - (hi - lo) * k / 3) + " m", white);
+            var ft = T(Units.AltText((float)(hi - (hi - lo) * k / 3)), white);
             dc.DrawText(ft, new Point(l - 6 - ft.Width, y - ft.Height / 2));
         }
         var area = new StreamGeometry();
@@ -246,7 +246,7 @@ public sealed class ElevationChart : FrameworkElement
         }
         dc.DrawGeometry(null, new Pen(new SolidColorBrush(Color.FromRgb(90, 190, 255)), 2.2) { LineJoin = PenLineJoin.Round }, line);
         dc.DrawText(T("0", white), new Point(l, H - 18));
-        var km = T(Math.Round((d1 - d0) * distScale / 1000) + " km", white);
+        var km = T(Units.LongText((float)((d1 - d0) * distScale / 1000)), white);
         dc.DrawText(km, new Point(r - km.Width, H - 18));
     }
 }

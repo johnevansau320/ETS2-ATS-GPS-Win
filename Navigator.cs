@@ -517,23 +517,7 @@ public sealed class Navigator
         _ => n + "th",
     };
 
-    public string SpokenDistance(float worldM)
-    {
-        float m = worldM * DistScale;
-        if (m < 950f) return Math.Max(50, (int)MathF.Round(m / 50f) * 50) + " meters";
-        if (m < 10000f)
-        {
-            float half = MathF.Round(m / 500f) / 2f;
-            return half.ToString("0.#", CultureInfo.InvariantCulture) + " kilometers";
-        }
-        return (int)MathF.Round(m / 1000f) + " kilometers";
-    }
+    public string SpokenDistance(float worldM) => Units.Spoken(worldM * DistScale);
 
-    public string ShortDistance(float worldM)
-    {
-        float m = worldM * DistScale;
-        if (m < 1000f) return Math.Max(10, (int)MathF.Round(m / 10f) * 10) + " m";
-        if (m < 10000f) return (m / 1000f).ToString("0.0", CultureInfo.InvariantCulture) + " km";
-        return (int)MathF.Round(m / 1000f) + " km";
-    }
+    public string ShortDistance(float worldM) => Units.Short(worldM * DistScale);
 }

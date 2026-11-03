@@ -419,17 +419,7 @@ class Navigator {
 
   ordinal(n) { return ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'][n] || n + 'th'; }
 
-  spokenDistance(worldM) {
-    const m = worldM * this.distScale;
-    if (m < 950) return Math.max(50, Math.round(m / 50) * 50) + ' meters';
-    if (m < 10000) { const half = Math.round(m / 500) / 2; return half + ' kilometers'; }
-    return Math.round(m / 1000) + ' kilometers';
-  }
+  spokenDistance(worldM) { return Units.spoken(worldM * this.distScale); }
 
-  shortDistance(worldM) {
-    const m = worldM * this.distScale;
-    if (m < 1000) return Math.max(10, Math.round(m / 10) * 10) + ' m';
-    if (m < 10000) return (m / 1000).toFixed(1) + ' km';
-    return Math.round(m / 1000) + ' km';
-  }
+  shortDistance(worldM) { return Units.short(worldM * this.distScale); }
 }

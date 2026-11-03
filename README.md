@@ -1,6 +1,6 @@
-# ETS2 GPS for Windows
+# ETS2-ATS GPS for Windows
 
-The Windows version of [ETS2 GPS](https://github.com/johnevansau320/ETS2GPS) (the Android route-GPS for Euro Truck Simulator 2 with ProMods and other map mods). Licensed under GPL-3.0 (see LICENSE).
+The Windows version of [ETS2-ATS GPS](https://github.com/johnevansau320/ETS2-ATS-GPS) (the route GPS for Euro Truck Simulator 2, with ProMods and other map mods, and American Truck Simulator). Licensed under GPL-3.0 (see LICENSE).
 
 A native Windows (.NET 8 WPF) version of the ETS2 GPS Android app, and fully standalone: **one exe, nothing else to install or
 start** (no Python, no companion). It has the road map with route, turn-by-turn guidance with voice, the lane panel, waypoints,
@@ -49,6 +49,17 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.11.0
+
+* **American Truck Simulator.** The app now works with ATS as well as ETS2 (it was renamed *ETS2-ATS GPS*). It sees which game is running and switches by itself: it builds the ATS map from your ATS install and mods (`atsmap.bin`, kept next to the ETS2 map), and in ATS shows mph, miles, gallons and US-style speed-limit signs and road shields (Interstate, US and state routes), with the game clock at 1:20. Saved trips, avoided roads and the distance scale are kept separately for each game.
+* **Gravel, dirt and farm roads** that the game's GPS uses (common in rural America) are now on the map and can be routed over, as slow roads.
+* **Company yards** are drawn with the same shapes as in the game's own map (lots, buildings, green areas).
+* **Smoother route line**: the small sideways steps where the game's road pieces join, and inside junctions, are smoothed out.
+* **Steam Cloud profiles**: the game's GPS destination and job are also read from saves that Steam keeps in the cloud (`Steam\userdata\...`).
+* **More voices**: the modern Windows voices (for example the male *Microsoft George*) can be chosen in Settings > Voice, as well as voices from the **Voicebox** app when it runs on this PC (George speaks instead whenever Voicebox does not answer in time).
+* **Voice control** listens to the microphone the way calls do (Windows' communications processing) and sets the level automatically, so quiet or noisy headset and wireless microphones work much better. The app never listens to itself while it speaks. *Not now* also understands *no thanks*, *maybe later*, *not this time* and more. What was heard is written to `%APPDATA%\ETS2-GPS\voice_control.log` (commands only, no audio) to help with microphone problems.
+* The GitHub repositories were renamed (`ETS2-ATS-GPS-Win`, `ETS2-ATS-GPS`); the update check of older versions follows the old links automatically.
+
 ## New in 1.10.1
 
 * **Roundabouts where traffic drives on the left** (UK, Ireland, Malta, Cyprus, Isle of Man, Channel Islands): exits are counted clockwise, so the spoken exit and the number in the turn picture match the route. They were counted anticlockwise as on the continent.
@@ -68,7 +79,7 @@ Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Star
 * **Follows the game's GPS when there is no job**: when you set a destination on the game's map, or drive to a pickup, the app reads it from your newest save (after the game's next autosave or a quick save) and offers to navigate there, through the game's waypoints. Saves are only read, never changed. Settings > Game GPS destination switches it off.
 * **Closed borders**: border crossings whose roads are all hidden in the game (the Russian borders, the Lebanon - Israel border) have gates that never open; routes now go round them.
 * **Ferries**: after a ferry crossing the route starts on the road (it could start back across the sea), and ferry and car-train crossings show as dashed blue lines instead of grey roads.
-* **Voice**: the new-job and game-GPS questions can be answered with *GPS, take the job* or *GPS, not now*; *GPS, follow the game route* goes where the game's GPS is set.
+* **Voice**: the new-job and game-GPS questions can be answered with *GPS, take the job* or *GPS, not now* (also *no thanks*, *maybe later*, *not this time*); *GPS, follow the game route* goes where the game's GPS is set.
 * The tablet / browser version gets the drop-off spots and the game's GPS destination from this app (`/drops.json`, `/gamegps`).
 
 ## New in 1.8.0

@@ -49,6 +49,7 @@ public sealed class MapControl : FrameworkElement
     {
         F(Color.FromRgb(52, 64, 84)), F(Color.FromRgb(226, 190, 136)), F(Color.FromRgb(212, 160, 92)), F(Color.FromRgb(112, 160, 104)),
     };
+    static readonly Brush ShieldRed = F(Color.FromRgb(190, 30, 45)), ShieldDark = F(Color.FromRgb(20, 20, 20));
     static readonly Brush ShieldGreen = F(Color.FromRgb(0, 128, 72)), ShieldBlue = F(Color.FromRgb(0, 64, 176)), PillBrush = F(Color.FromArgb(235, 250, 250, 252)), PillText = F(Color.FromRgb(30, 36, 48));
     static readonly Brush Bg = F(Color.FromRgb(34, 40, 54));
     static readonly Brush RouteBrush = F(Color.FromRgb(36, 132, 255)), CasingBrush = F(Color.FromArgb(235, 255, 255, 255));
@@ -79,6 +80,86 @@ public sealed class MapControl : FrameworkElement
     static readonly Typeface Face = new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
     static readonly Typeface FaceNormal = new("Segoe UI");
     static Brush F(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
+
+    /// <summary>
+    /// The game's road pieces do not meet exactly: a road ends on its centre line while the junction piece after it starts on the lane, a few metres to the side. Drawn as is, the route steps sideways at every join. Both sides of a join are eased towards its middle over a short stretch (only points move, so indices into the line stay valid).
+    /// </summary>
+    public static void SmoothJoins(float[] pts, int[] starts)
+    {
+        var o = (float[])pts.Clone();
+        int n = pts.Length / 2;
+        for (int i = 1; i < starts.Length; i++)
+        {
+            int s = starts[i], e = s - 1, a0 = starts[i - 1], b1 = i + 1 < starts.Length ? starts[i + 1] - 1 : n - 1;
+            if (e < a0 || s > b1) continue;
+            float gx = o[s * 2] - o[e * 2], gz = o[s * 2 + 1] - o[e * 2 + 1], g = MathF.Sqrt(gx * gx + gz * gz);
+            if (g < 0.3f || g > 25f) continue;   // joined already, or a real gap (ferry)
+            float len = Math.Clamp(g * 4f, 8f, 40f);
+            void Ease(int from, int to, int step, float sign)
+            {
+                float total = 0f;
+                for (int k = from; k != to; k += step) total += Seg(k, k + step);
+                float l = MathF.Min(len, total / 2f), d = 0f;
+                for (int k = from; ; k += step)
+                {
+                    float t = 1f - d / MathF.Max(l, 0.01f);
+                    if (t <= 0f) break;
+                    pts[k * 2] += sign * gx / 2f * t; pts[k * 2 + 1] += sign * gz / 2f * t;
+                    if (k == to) break;
+                    d += Seg(k, k + step);
+                }
+            }
+            float Seg(int p, int q) => MathF.Sqrt((o[q * 2] - o[p * 2]) * (o[q * 2] - o[p * 2]) + (o[q * 2 + 1] - o[p * 2 + 1]) * (o[q * 2 + 1] - o[p * 2 + 1]));
+            Ease(e, a0, -1, 1f);    // the end of the piece before moves half way towards the next
+            Ease(s, b1, 1, -1f);    // the start of the next piece moves half way back
+        }
+        SmoothLine(pts); SmoothLine(pts);
+    }
+
+    /// <summary>
+    /// Inside junction pieces the route still hops from lane to lane in short sideways steps. Each point is replaced by the average of the line
+    /// around it (a triangle-weighted window along the line, up to 60 m each way; done twice). Where the road really bends the window shrinks, so a bend
+    /// is never cut by more than about half a metre; the ends of the line and real gaps (ferries) stay where they are.
+    /// </summary>
+    static void SmoothLine(float[] pts)
+    {
+        int n = pts.Length / 2;
+        var o = (float[])pts.Clone();
+        var s = new double[n];
+        for (int i = 1; i < n; i++) s[i] = s[i - 1] + MathF.Sqrt((o[i * 2] - o[i * 2 - 2]) * (o[i * 2] - o[i * 2 - 2]) + (o[i * 2 + 1] - o[i * 2 - 1]) * (o[i * 2 + 1] - o[i * 2 - 1]));
+        for (int a = 0; a < n;)
+        {
+            int b = a;   // one run of the line without a gap
+            while (b + 1 < n && s[b + 1] - s[b] <= 25) b++;
+            (double X, double Z) At(double t)   // the point at distance t along the run
+            {
+                t = Math.Clamp(t, s[a], s[b]);
+                int lo = a, hi = b;
+                while (hi - lo > 1) { int m = (lo + hi) >> 1; if (s[m] <= t) lo = m; else hi = m; }
+                double f = s[hi] > s[lo] ? (t - s[lo]) / (s[hi] - s[lo]) : 0;
+                return (o[lo * 2] + (o[hi * 2] - o[lo * 2]) * f, o[lo * 2 + 1] + (o[hi * 2 + 1] - o[lo * 2 + 1]) * f);
+            }
+            for (int i = a + 1; i < b; i++)
+            {
+                double t = s[i];
+                // how sharply the road bends here: heading 15-60 m before against 15-60 m after
+                var (p0, p1, p2, p3) = (At(t - 60), At(t - 15), At(t + 15), At(t + 60));
+                double turn = Math.Abs(Math.Atan2(p3.Z - p2.Z, p3.X - p2.X) - Math.Atan2(p1.Z - p0.Z, p1.X - p0.X));
+                if (turn > Math.PI) turn = 2 * Math.PI - turn;
+                double radius = 75 / Math.Max(turn, 1e-3);
+                double w = Math.Min(Math.Min(60, Math.Sqrt(12 * radius * 0.5)), Math.Min(t - s[a], s[b] - t));   // a bend of radius r is cut by about w*w/(12r)
+                if (w < 1) continue;
+                double sx = 0, sz = 0, sw = 0;
+                for (int k = -10; k <= 10; k++)
+                {
+                    var q = At(t + w * k / 10); double wt = 11 - Math.Abs(k);
+                    sx += q.X * wt; sz += q.Z * wt; sw += wt;
+                }
+                pts[i * 2] = (float)(sx / sw); pts[i * 2 + 1] = (float)(sz / sw);
+            }
+            a = b + 1;
+        }
+    }
 
     readonly List<int>[] buckets = { new(), new(), new(), new() };
     readonly List<int>[] elevBuckets = { new(), new(), new(), new() };
@@ -573,12 +654,23 @@ public sealed class MapControl : FrameworkElement
                 if (dx > radius || dx < -radius || dz > radius || dz < -radius) continue;
                 var p = P(rl.X, rl.Z);
                 if ((tilted && p.Sc < 0.3) || p.X < -80 || p.X > W + 80 || p.Y < -40 || p.Y > H + 40) continue;
-                var ft = Text(rl.Text, 34, Brushes.White, true);
+                // US: Interstates blue with a red top, US routes white with a black edge, state routes and loops white pills
+                bool interstate = rl.Text.StartsWith("I-"), usOther = !interstate && Games.Current == Games.Ats;
+                var ft = Text(rl.Text, 34, usOther ? ShieldDark : Brushes.White, true);
                 double bw = ft.Width + 24, bh = ft.Height + 4;
                 var box = new Rect(p.X - bw / 2, p.Y - bh / 2, bw, bh);
                 Scaled(p.X, p.Y, Fs(p.Sc), () =>
                 {
-                    dc.DrawRoundedRectangle(rl.Text.StartsWith('E') ? ShieldGreen : ShieldBlue, new Pen(Brushes.White, 3.2), box, 6, 6);
+                    if (interstate)
+                    {
+                        dc.DrawRoundedRectangle(ShieldBlue, null, box, 6, 6);
+                        dc.PushClip(new RectangleGeometry(box, 6, 6));
+                        dc.DrawRectangle(ShieldRed, null, new Rect(box.X, box.Y, box.Width, box.Height * 0.26));
+                        dc.Pop();
+                        dc.DrawRoundedRectangle(null, new Pen(Brushes.White, 3.2), box, 6, 6);
+                    }
+                    else if (usOther) dc.DrawRoundedRectangle(Brushes.White, new Pen(ShieldDark, 3.2), box, rl.Text.StartsWith("US ") ? 6 : bh / 2, rl.Text.StartsWith("US ") ? 6 : bh / 2);
+                    else dc.DrawRoundedRectangle(rl.Text.StartsWith('E') ? ShieldGreen : ShieldBlue, new Pen(Brushes.White, 3.2), box, 6, 6);
                     dc.DrawText(ft, new Point(box.X + 12, box.Y + 2));
                 });
             }

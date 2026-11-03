@@ -51,7 +51,7 @@ function parseTruckState(j) {
   const cap = num(truck, 'fuelCapacity');
   const destId = str(job, 'destinationCityId');
   return {
-    connected: game.connected === true, paused: game.paused === true,
+    connected: game.connected === true, paused: game.paused === true, gameName: str(game, 'gameName'),
     x: num(pl, 'x'), y: num(pl, 'y'), z: num(pl, 'z'), reportedHeadingDeg: num(pl, 'heading'),
     speedKmh: num(truck, 'speed'), speedLimitKmh: Math.round(num(nav, 'speedLimit')),
     destCityId: destId, destCity: str(job, 'destinationCity'),

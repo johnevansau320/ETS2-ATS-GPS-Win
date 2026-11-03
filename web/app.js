@@ -1,12 +1,16 @@
 'use strict';
-/* ETS2 GPS web app: UI and glue (port of MainActivity.kt). Served by the companion at http://<pc>:31378/ */
+/* ETS2-ATS GPS web app: UI and glue (port of MainActivity.kt). Served by the companion at http://<pc>:31378/ */
 
-const TIME_SCALE = 19;
+// game minutes per real minute: ETS2 1:19, ATS 1:20
+const timeScale = () => (Games.current === Games.ATS ? 20 : 19);
 const LANE_SHOW_M = 50000; // the lane panel appears this far (in game metres) before the junction
 const $ = (id) => document.getElementById(id);
+// trips, avoided roads and the sim scale belong to one game's map: ATS keeps its own copies ('trips.ats' ...)
+const PER_GAME = ['trips', 'avoid', 'scale'];
+const lsKey = (k) => 'ets2gps.' + k + (PER_GAME.includes(k) && Games.current === Games.ATS ? '.ats' : '');
 const ls = {
-  get(k, d) { try { const v = localStorage.getItem('ets2gps.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem('ets2gps.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
+  get(k, d) { try { const v = localStorage.getItem(lsKey(k)); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(lsKey(k), JSON.stringify(v)); } catch (e) { /* private mode */ } },
 };
 const fmt = (v, d = 0) => Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 
@@ -14,7 +18,7 @@ const fmt = (v, d = 0) => Number(v).toLocaleString('en-US', { minimumFractionDig
 let map = null, router = null, nav = null, truck = null;
 const motion = new MotionFilter(), elev = new ElevationLog();
 let routeMode = ROUTE_MODES.find((m) => m.key === ls.get('mode', 'HEAVY')) || ROUTE_MODES[0];
-let simScale = ls.get('scale', 19), realDist = ls.get('real', false);
+let simScale = ls.get('scale', Games.current.scale), realDist = ls.get('real', false);
 let distScale = realDist ? 1 : simScale;   // what map metres are multiplied by for display: 1 = real, simScale = game (Sim)
 let avoidFerries = ls.get('ferries', false);
 let hasDest = false, destX = 0, destZ = 0, destName = '', destIsPoi = false;
@@ -148,6 +152,9 @@ async function loadMap() {
   try {
     const r = await fetch('/map.bin', { cache: 'no-cache' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
+    const hg = r.headers.get('X-Map-Game');
+    if (hg && Games.byId(hg) !== Games.current) setGame(Games.byId(hg));
+    mapGame = Games.current;
     const total = parseInt(r.headers.get('Content-Length') || '0', 10);
     const reader = r.body.getReader(), chunks = [];
     let got = 0;
@@ -180,6 +187,31 @@ async function loadMap() {
   } catch (e) {
     setBannerMessage('Could not load the map: ' + (e.message || e));
   }
+}
+
+// ------------------------------------------------------------------------------ games --
+let mapGame = null, waitingForGame = false;
+function setGame(g) {
+  Games.current = g;
+  try { localStorage.setItem('ets2gps.game', JSON.stringify(g.id)); } catch (e) { /* private mode */ }
+  simScale = ls.get('scale', g.scale); distScale = realDist ? 1 : simScale;
+  avoidPoints = ls.get('avoid', []);
+  $('speedUnit').textContent = Units.speedUnit;
+  $('limit').classList.toggle('us', g.imperial);
+}
+// The other game is running: drop the route and wait until the PC has that game's map (it may still be building it), then load it.
+async function switchGame(g) {
+  waitingForGame = true;
+  cancelRoute();
+  setGame(g);
+  map = null; router = null; nav = null; mapView.map = null; mapView.assets = null;
+  setBannerMessage(g.name + ' is running: waiting for its map from your PC…');
+  for (;;) {
+    try { const i = await (await fetch('/info', { cache: 'no-cache' })).json(); if (i.game === g.id && i.bytes > 0) break; } catch (e) { /* PC busy */ }
+    await new Promise((res) => setTimeout(res, 5000));
+  }
+  await loadMap();
+  waitingForGame = false;
 }
 
 // The companies' drop-off spots (the delivery flag goes there): served by the Windows app next to the map, optional.
@@ -228,8 +260,8 @@ function updateBannerJob() {
   if (!j) { $('bJob1').textContent = ''; $('bJob2').textContent = ''; return; }
   $('bJob1').textContent = placeName(j.srcCompany, j.srcCity) + '  →  ' + placeName(j.destCompany, j.destCity);
   const parts = [];
-  if (j.cargo) parts.push(j.cargo + (j.massKg > 0 ? ' ' + (j.massKg / 1000).toFixed(1) + ' t' : ''));
-  if (j.income > 0) parts.push('€' + fmt(j.income));
+  if (j.cargo) parts.push(j.cargo + (j.massKg > 0 ? ' ' + Units.mass(j.massKg) : ''));
+  if (j.income > 0) parts.push(Units.money + fmt(j.income));
   const etaMin = nav && nav.active && routeEtaGameMin >= 0 ? routeEtaGameMin : truck.navEtaMin;
   let late = false;
   if (j.dueMin >= 0) {
@@ -260,6 +292,8 @@ function setLanes(lanes, caption) {
 
 // --------------------------------------------------------------------------- telemetry --
 function onTruck(s) {
+  const tg = Games.fromName(s.gameName);
+  if (s.connected && tg && mapGame && tg !== mapGame && !waitingForGame) { switchGame(tg); return; }
   truck = s;
   const now = performance.now();
   motion.update(s, now);
@@ -267,9 +301,9 @@ function onTruck(s) {
   mapView.speedKmh = s.speedKmh;
   statusMsg = !s.connected ? 'Telemetry connected - waiting for the game' : s.paused ? 'Game paused' : place;
   $('status').textContent = statusMsg;
-  $('speed').textContent = Math.round(Math.max(0, s.speedKmh));
+  $('speed').textContent = Math.round(Math.max(0, Units.speed(s.speedKmh)));
   const lim = $('limit');
-  if (s.speedLimitKmh > 0) { lim.textContent = s.speedLimitKmh; lim.style.visibility = 'visible'; } else lim.style.visibility = 'hidden';
+  if (s.speedLimitKmh > 0) { lim.textContent = Math.round(Units.speed(s.speedLimitKmh)); lim.style.visibility = 'visible'; } else lim.style.visibility = 'hidden';
   trackTrip(s, now);
   updateBannerJob();
   if (tripOpen) updateTrip();
@@ -317,7 +351,7 @@ function navTick() {
   }
   if (!laneHidden() && st.lanes && st.lanesDistM * simScale < LANE_SHOW_M) setLanes(st.lanes, n.shortDistance(st.lanesDistM)); else setLanes(null);
   updatePace(n);
-  const realMin = totS / paceRatio / 60, gameMin = realMin * TIME_SCALE;
+  const realMin = totS / paceRatio / 60, gameMin = realMin * timeScale();
   routeEtaGameMin = gameMin;
   const clock = etaClock(gameMin);
   const label = waypoints.length ? destName + ' (via ' + waypoints.length + ' stop' + (waypoints.length > 1 ? 's' : '') + ', next: ' + waypoints[0].name + ')' : destName;
@@ -438,6 +472,7 @@ function computeRoute(x, z, name, opts = {}) {
       const pts = new Float32Array(total * 2), lift = new Uint8Array(total), starts = new Int32Array(res.edges.length);
       let p = 0;
       res.edges.forEach((de, i) => { starts[i] = p; for (let k = 0; k < m.deCount(de); k++) { pts[p * 2] = m.deX(de, k); pts[p * 2 + 1] = m.deZ(de, k); lift[p] = Math.round(m.deLift(de, k) * 2); p++; } });
+      smoothJoins(pts, starts);
       n.distScale = distScale;
       n.arriveWord = legIsStop ? 'your waypoint' : destIsJob ? 'the destination area' : 'your destination';
       mapView.flagOn = true; mapView.flagLink = !!jobFlag;
@@ -715,7 +750,7 @@ function nearestPois(type, limit) {
   hits.sort((a, c) => (a.ahead < -0.3 ? a.dist * 2 : a.dist) - (c.ahead < -0.3 ? c.dist * 2 : c.dist)); // things behind count double
   return hits.slice(0, limit);
 }
-function gameDist(worldM) { const g = worldM * distScale; return g < 1000 ? Math.max(10, Math.round(g / 10) * 10) + ' m' : (g / 1000).toFixed(1) + ' km'; }
+function gameDist(worldM) { return Units.short(worldM * distScale); }
 const direction = (h) => (h.ahead > 0.5 ? 'ahead' : h.ahead < -0.5 ? 'behind' : h.right > 0 ? 'to the right' : 'to the left');
 function showPoiPicker() {
   if (!map) { toast('Map not loaded yet'); return; }
@@ -738,7 +773,7 @@ function updateAltitude(s) {
   const g = motion.gradientPct;
   const arrow = !motion.gradientValid || Math.abs(g) < 0.5 ? '▬' : g > 0 ? '▲' : '▼';
   const gs = motion.gradientValid ? arrow + ' ' + Math.abs(g).toFixed(1) + '%' : arrow;
-  const el = $('alt'); el.textContent = gs + '\n' + Math.round(s.y) + ' m';
+  const el = $('alt'); el.textContent = gs + '\n' + Units.altText(s.y);
   el.style.color = motion.gradientValid && g <= -5 ? 'rgb(255,170,90)' : motion.gradientValid && g >= 6 ? 'rgb(255,120,120)' : '#fff';
 }
 function checkHill(s, now) {
@@ -756,7 +791,7 @@ function checkHill(s, now) {
 function showElevation() {
   const n = elev.alt.length;
   let lo = 1e30, hi = -1e30; for (const a of elev.alt) { lo = Math.min(lo, a); hi = Math.max(hi, a); }
-  const summary = n < 2 ? 'No data yet' : 'Now ' + Math.round(truck ? truck.y : 0) + ' m  ·  climbed ' + Math.round(elev.ascent()) + ' m  ·  descended ' + Math.round(elev.descent()) + ' m  ·  range ' + Math.round(lo) + ' to ' + Math.round(hi) + ' m';
+  const summary = n < 2 ? 'No data yet' : 'Now ' + Units.altText(truck ? truck.y : 0) + '  ·  climbed ' + Units.altText(elev.ascent()) + '  ·  descended ' + Units.altText(elev.descent()) + '  ·  range ' + Math.round(Units.alt(lo)) + ' to ' + Units.altText(hi);
   modal({
     title: 'Trip elevation', message: summary,
     build: (body) => {
@@ -779,11 +814,11 @@ function drawElevation(cv) {
   const d0 = elev.dist[0], d1 = Math.max(elev.dist[n - 1], d0 + 1);
   const px = (i) => l + (elev.dist[i] - d0) / (d1 - d0) * (r - l), py = (i) => b - (elev.alt[i] - lo) / (hi - lo) * (b - t);
   c.textAlign = 'right'; c.strokeStyle = 'rgba(255,255,255,.2)';
-  for (let k = 0; k <= 3; k++) { const y = t + (b - t) * k / 3; c.beginPath(); c.moveTo(l, y); c.lineTo(r, y); c.stroke(); c.fillText(Math.round(hi - (hi - lo) * k / 3) + ' m', l - 4, y + 4); }
+  for (let k = 0; k <= 3; k++) { const y = t + (b - t) * k / 3; c.beginPath(); c.moveTo(l, y); c.lineTo(r, y); c.stroke(); c.fillText(Units.altText(hi - (hi - lo) * k / 3), l - 4, y + 4); }
   c.beginPath(); c.moveTo(px(0), b); for (let i = 0; i < n; i++) c.lineTo(px(i), py(i)); c.lineTo(px(n - 1), b); c.closePath(); c.fillStyle = 'rgba(90,190,255,.27)'; c.fill();
   c.beginPath(); for (let i = 0; i < n; i++) { if (i) c.lineTo(px(i), py(i)); else c.moveTo(px(i), py(i)); } c.strokeStyle = 'rgb(90,190,255)'; c.lineWidth = 2.2; c.stroke();
   c.textAlign = 'center'; c.fillStyle = 'rgba(255,255,255,.85)';
-  c.fillText('0', l, H - 6); c.fillText(Math.round((d1 - d0) * distScale / 1000) + ' km', r - 14, H - 6);
+  c.fillText('0', l, H - 6); c.fillText(Units.longText((d1 - d0) * distScale / 1000), r - 14, H - 6);
 }
 function checkAlerts(s) {
   if (!map) return;
@@ -849,7 +884,7 @@ function updateTrip() {
   const routingNow = n && n.active && routeRemainingM >= 0;
   // the Job Info screen always counts in game kilometres (planned distance, range and consumption come from the game), whatever the Real / Sim setting
   const remGameKm = routingNow ? routeRemainingM * simScale / 1000 : (dt ? dt.navDistanceKm : 0);
-  const realMin = routingNow && routeEtaGameMin >= 0 ? routeEtaGameMin / TIME_SCALE : -1;
+  const realMin = routingNow && routeEtaGameMin >= 0 ? routeEtaGameMin / timeScale() : -1;
   const simMin = routingNow ? routeEtaGameMin : (s.navEtaMin >= 0 ? s.navEtaMin : -1);
   const planned = j ? j.plannedKm : 0;
   const progress = planned > 0 && remGameKm > 0 ? Math.min(1, Math.max(0, 1 - remGameKm / planned)) : 0;
@@ -857,34 +892,34 @@ function updateTrip() {
   let html = '<h2>TRIP DETAILS ' + (j ? '<small style="color:' + green + '">● ON JOB</small>' : '') + '</h2>';
   html += '<div class="card" style="margin-bottom:10px"><div class="row"><span>FROM <b>' + esc(j ? placeName(j.srcCompany, j.srcCity) : '-') + '</b></span><span>TO <b>' + esc(j ? placeName(j.destCompany, j.destCity) : (hasDest ? destName : '-')) + '</b></span></div>' +
     '<div class="tbar"><div style="width:' + Math.round(progress * 100) + '%"></div></div>' +
-    '<div class="row"><span>' + fmt(remGameKm) + ' km left' + (planned > 0 ? ' of ' + fmt(planned) + ' km · ' + Math.round(progress * 100) + '%' : '') + '</span><span>Local ' + cal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' · ETS2 ' + clockText(s.gameTimeMin) + '</span></div></div>';
+    '<div class="row"><span>' + Units.longText(remGameKm) + ' left' + (planned > 0 ? ' of ' + Units.longText(planned) + ' · ' + Math.round(progress * 100) + '%' : '') + '</span><span>Local ' + cal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' · ' + Games.current.short + ' ' + clockText(s.gameTimeMin) + '</span></div></div>';
   html += '<div class="cards">';
   // job
   if (j) {
     const late = j.dueMin >= 0 && simMin >= 0 && simMin > j.dueMin;
-    let c = '<h3>JOB</h3>' + row('Cargo', esc(j.cargo) + (j.massKg > 0 ? '  ' + (j.massKg / 1000).toFixed(1) + ' t' : '')) + row('Units', j.units);
-    if (j.income > 0) c += row('Income', '€' + fmt(j.income));
+    let c = '<h3>JOB</h3>' + row('Cargo', esc(j.cargo) + (j.massKg > 0 ? '  ' + Units.mass(j.massKg) : '')) + row('Units', j.units);
+    if (j.income > 0) c += row('Income', Units.money + fmt(j.income));
     if (j.dueMin >= 0) {
       c += row('Deadline in', formatDuration(j.dueMin) + ' (sim)', late ? red : null);
       if (simMin >= 0) { const sp = j.dueMin - simMin; c += row(late ? 'Running late by' : 'Time to spare', formatDuration(Math.abs(sp)) + ' (sim)', late ? red : green); }
     }
-    if (planned > 0) c += row('Planned distance', planned + ' km');
+    if (planned > 0) c += row('Planned distance', Units.longText(planned));
     html += '<div class="card">' + c + '</div>';
   } else html += '<div class="card"><h3>JOB</h3>' + row('Status', 'no active job') + '</div>';
   // route
   let rc = '<h3>ROUTE</h3>' + row('Destination', esc(hasDest ? destName : 'none'));
   if (routingNow) {
-    rc += row('Remaining', Math.round(remGameKm).toLocaleString('en') + ' km') + row('Real time left', formatDuration(realMin)) + row('Sim time left', formatDuration(simMin)) + row('Arrive (sim clock)', clockText(s.gameTimeMin + simMin));
+    rc += row('Remaining', Units.longText(remGameKm)) + row('Real time left', formatDuration(realMin)) + row('Sim time left', formatDuration(simMin)) + row('Arrive (sim clock)', clockText(s.gameTimeMin + simMin));
     if (lastNextText) rc += row('Next', esc(lastNextText.charAt(0).toUpperCase() + lastNextText.slice(1)));
-  } else { rc += row('Game route left', Math.round(remGameKm) + ' km'); if (simMin >= 0) rc += row('Game ETA (sim)', formatDuration(simMin)); }
+  } else { rc += row('Game route left', Units.longText(remGameKm)); if (simMin >= 0) rc += row('Game ETA (sim)', formatDuration(simMin)); }
   rc += row('Route type', routeMode.label);
   html += '<div class="card">' + rc + '</div>';
   // truck
   if (dt) {
     const fr = dt.fuelCapL > 0 ? dt.fuelL / dt.fuelCapL : 0, fc = fr < 0.12 ? red : fr < 0.25 ? amber : null;
-    html += '<div class="card"><h3>TRUCK</h3>' + row('Truck', esc(dt.truckName || '-')) + row('Fuel', Math.round(dt.fuelL) + ' / ' + Math.round(dt.fuelCapL) + ' L  (' + Math.round(fr * 100) + '%)', fc) +
-      row('Range', fmt(dt.rangeKm) + ' km') + row('Consumption', (dt.consumptionLPerKm * 100).toFixed(1) + ' L/100 km') + row('Odometer', fmt(dt.odometerKm) + ' km') +
-      row('Speed', Math.round(Math.max(0, s.speedKmh)) + ' km/h' + (s.speedLimitKmh > 0 ? '  (limit ' + s.speedLimitKmh + ')' : '')) + '</div>';
+    html += '<div class="card"><h3>TRUCK</h3>' + row('Truck', esc(dt.truckName || '-')) + row('Fuel', Units.n(Units.fuel(dt.fuelL)) + ' / ' + Units.fuelText(dt.fuelCapL) + '  (' + Math.round(fr * 100) + '%)', fc) +
+      row('Range', Units.longText(dt.rangeKm)) + row('Consumption', Units.consumption(dt.consumptionLPerKm)) + row('Odometer', Units.longText(dt.odometerKm)) +
+      row('Speed', Units.speedText(s.speedKmh) + (s.speedLimitKmh > 0 ? '  (limit ' + Math.round(Units.speed(s.speedLimitKmh)) + ')' : '')) + '</div>';
     if (dt.trailerAttached) {
       html += '<div class="card"><h3>TRAILER &amp; CARGO</h3>' + row('Trailer', esc(dt.trailerName || '-')) + row('Plate', esc(dt.trailerPlate || '-')) +
         row('Chassis damage', Math.round(dt.trailerChassis) + '%', dmgColor(dt.trailerChassis)) + row('Wheels damage', Math.round(dt.trailerWheels) + '%', dmgColor(dt.trailerWheels)) +
@@ -894,9 +929,9 @@ function updateTrip() {
   // this trip
   const driven = Math.max(0, motion.travelled - tripBase) * simScale / 1000, drivenM = Math.max(0, motion.travelled - tripBase);
   const avg = tripDriveMs > 1000 ? drivenM / (tripDriveMs / 1000) * 3.6 : 0;
-  let tc = '<h3>THIS TRIP</h3>' + row('Distance driven', Math.round(driven) + ' km') + row('Driving time (real)', formatDuration(tripDriveMs / 60000)) + row('Driving time (sim)', formatDuration(tripDriveMs / 60000 * TIME_SCALE)) +
-    row('Average speed', Math.round(avg) + ' km/h') + row('Top speed', Math.round(tripMaxKmh) + ' km/h') + row('Climbed / descended', Math.round(elev.ascent()) + ' / ' + Math.round(elev.descent()) + ' m') + row('Fuel used', Math.round(tripFuelUsed) + ' L');
-  if (driven > 5 && tripFuelUsed > 0) tc += row('Trip consumption', (tripFuelUsed / driven * 100).toFixed(1) + ' L/100 km');
+  let tc = '<h3>THIS TRIP</h3>' + row('Distance driven', Units.longText(driven)) + row('Driving time (real)', formatDuration(tripDriveMs / 60000)) + row('Driving time (sim)', formatDuration(tripDriveMs / 60000 * timeScale())) +
+    row('Average speed', Units.speedText(avg)) + row('Top speed', Units.speedText(tripMaxKmh)) + row('Climbed / descended', Math.round(Units.alt(elev.ascent())) + ' / ' + Units.altText(elev.descent())) + row('Fuel used', Units.fuelText(tripFuelUsed));
+  if (driven > 5 && tripFuelUsed > 0) tc += row('Trip consumption', Units.consumption(tripFuelUsed / driven));
   html += '<div class="card">' + tc + '</div>';
   // time & rest
   let rt = '<h3>TIME &amp; REST</h3>' + row('Sim clock', clockText(s.gameTimeMin)) + row('Real time', cal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
@@ -939,7 +974,7 @@ function showSettings() {
       tv.onclick = () => { const sel = body.querySelector('input[name=vo]:checked'); voice.output = sel ? parseInt(sel.value, 10) : 0; voice.unlock(); voice.say('Voice guidance is working.'); }; body.appendChild(tv);
       h('Distances');
       const rl = document.createElement('label'); rl.innerHTML = '<input type="checkbox" id="setReal"' + (realDist ? ' checked' : '') + '> Real distances (turns, lane guidance, route length). Off = Sim distances like the game shows'; body.appendChild(rl);
-      const sl = document.createElement('div'); sl.style.cssText = 'font-size:13px;color:#aab3c0;margin-top:8px'; sl.textContent = 'Sim scale (game shows map metres x19)'; body.appendChild(sl);
+      const sl = document.createElement('div'); sl.style.cssText = 'font-size:13px;color:#aab3c0;margin-top:8px'; sl.textContent = 'Sim scale for ' + Games.current.short + ' (the game shows map metres x' + Games.current.scale + ')'; body.appendChild(sl);
       const sc = document.createElement('input'); sc.type = 'number'; sc.id = 'setScale'; sc.value = simScale; sc.step = 'any'; body.appendChild(sc);
       const help = document.createElement('div'); help.style.cssText = 'font-size:12px;color:#aab3c0;margin-top:10px';
       help.textContent = 'Telemetry and the map come from the companion on your PC. On iPad: Settings > Display > Auto-Lock > Never, and use Share > Add to Home Screen for a full-screen app.';
@@ -977,7 +1012,7 @@ function cruiseCall(on) {
   fetch('/cruise' + (on === undefined ? '' : '?on=' + (on ? 1 : 0)))
     .then((r) => r.json())
     .then((j) => { cruiseOn = !!j.on; updateCruiseButton(); if (on !== undefined) toast(cruiseOn ? 'Cruise control will follow the speed limit while the game is in front' : 'Cruise control stays where you set it'); })
-    .catch(() => { if (on !== undefined) toast('Needs the ETS2 GPS Windows app on the PC (it presses the cruise keys)'); });
+    .catch(() => { if (on !== undefined) toast('Needs the ETS2-ATS GPS Windows app on the PC (it presses the cruise keys)'); });
 }
 $('btnCruise').onclick = () => cruiseCall(!cruiseOn);
 cruiseCall();
@@ -1019,4 +1054,5 @@ layout();
 setBannerMessage(null); clearManeuver();
 requestAnimationFrame(frame);
 telemetry.start();
+setGame(Games.current);
 loadMap();

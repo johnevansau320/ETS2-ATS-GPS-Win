@@ -6,10 +6,10 @@ namespace Ets2Gps.MapBuilder;
 /// <summary>One mod of the active profile as reported by the TruckSim GPS server.</summary>
 public sealed record ModPackage(string Package, string WorkshopId, string DisplayName);
 
-/// <summary>Locates the ETS2 install and the active mods and mounts them in game load order.</summary>
+/// <summary>Locates the install of the current game (ETS2 or ATS) and its active mods and mounts them in game load order.</summary>
 public static class GameFiles
 {
-    const string AppId = "227300";
+    static string AppId => Games.Current.SteamApp;
     static readonly string[] Skip =
     {
         "base_vehicle", "dlc_flags_", "dlc_lunar", "dlc_christmas", "dlc_halloween", "dlc_valentine", "dlc_pink_ribbon", "dlc_prehistoric",
@@ -28,7 +28,7 @@ public static class GameFiles
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "OneDrive", "Documents"),
         };
         foreach (var c in cands)
-            if (!string.IsNullOrEmpty(c) && Directory.Exists(Path.Combine(c, "Euro Truck Simulator 2"))) return Path.Combine(c, "Euro Truck Simulator 2");
+            if (!string.IsNullOrEmpty(c) && Directory.Exists(Path.Combine(c, Games.Current.Folder))) return Path.Combine(c, Games.Current.Folder);
         return null;
     }
 
@@ -64,10 +64,10 @@ public static class GameFiles
         if (!string.IsNullOrEmpty(explicitDir)) return explicitDir;
         foreach (var lib in SteamLibraries())
         {
-            string g = Path.Combine(lib, "steamapps", "common", "Euro Truck Simulator 2");
+            string g = Path.Combine(lib, "steamapps", "common", Games.Current.Folder);
             if (Directory.Exists(g)) return g;
         }
-        throw new InvalidOperationException("Could not find Euro Truck Simulator 2 (looked in the Steam libraries).");
+        throw new InvalidOperationException($"Could not find {Games.Current.Name} (looked in the Steam libraries).");
     }
 
     static JsonElement HttpJson(string path) =>
@@ -81,17 +81,17 @@ public static class GameFiles
     {
         try
         {
-            var st = HttpJson("/api/game/state?game=ets2");
+            var st = HttpJson("/api/game/state?game=" + Games.Current.Id);
             JsonElement prof = default; bool have = false;
             if (st.TryGetProperty("activeProfile", out var ap) && ap.ValueKind == JsonValueKind.Object) { prof = ap; have = true; log("  active profile: " + Str(ap, "name")); }
             if (!have)
             {
-                var profs = HttpJson("/api/game/profiles?game=ets2");
+                var profs = HttpJson("/api/game/profiles?game=" + Games.Current.Id);
                 if (!profs.TryGetProperty("profiles", out var arr) || arr.ValueKind != JsonValueKind.Array || arr.GetArrayLength() == 0) return null;
                 prof = arr[0];
                 log("  game not running; using first profile " + Str(prof, "name"));
             }
-            var mods = HttpJson($"/api/game/profile-mods?game=ets2&id={Uri.EscapeDataString(Str(prof, "id"))}&type={Uri.EscapeDataString(Str(prof, "type"))}");
+            var mods = HttpJson($"/api/game/profile-mods?game={Games.Current.Id}&id={Uri.EscapeDataString(Str(prof, "id"))}&type={Uri.EscapeDataString(Str(prof, "type"))}");
             var list = new List<ModPackage>();
             if (mods.TryGetProperty("mods", out var ms) && ms.ValueKind == JsonValueKind.Array)
                 foreach (var m in ms.EnumerateArray()) list.Add(new ModPackage(Str(m, "package"), Str(m, "workshopId"), Str(m, "displayName")));

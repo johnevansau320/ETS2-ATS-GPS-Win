@@ -34,6 +34,22 @@ public sealed partial class MainWindow
 
     // ------------------------------------------------------------------------------ map --
 
+    /// <summary>The other game is running: drop the route, switch the units, settings and map to that game, and load (or build) its map.</summary>
+    void SwitchGame(GameInfo g)
+    {
+        if (switchingGame) return;
+        switchingGame = true;
+        CancelRoute();
+        Games.Current = g; cfg.Game = g.Id; cfg.Save();
+        Title = AppTitle;
+        distScale = cfg.RealDistances ? 1f : cfg.GameDistScale;
+        map = null; router = null; nav = null; mapView.Map = null; mapView.Assets = null;
+        speedUnit.Text = Units.SpeedUnit; StyleLimitSign();
+        Toast(g.Name + " is running: switching to its map");
+        _ = LoadMapAsync().ContinueWith(_ => Dispatcher.BeginInvoke(new Action(() => switchingGame = false)));
+    }
+    bool switchingGame;
+
     async Task LoadMapAsync()
     {
         try
@@ -41,7 +57,7 @@ public sealed partial class MainWindow
             var progress = new Progress<string>(t => SetBannerMessage(t));
             var m = await MapService.LoadAsync(cfg, progress);
             var rt = new Router(m) { Mode = routeMode, AvoidFerries = cfg.AvoidFerries };
-            rt.SetAvoid(cfg.Avoid.Select(a => (a.X, a.Z)));
+            rt.SetAvoid(cfg.GameAvoid.Select(a => (a.X, a.Z)));
             map = m; router = rt; nav = new Navigator(m, rt) { DistScale = distScale };
             mapView.Map = m;
             mapView.Assets = await Task.Run(() => MapAssets.Load(MapService.AssetsPath));
@@ -83,6 +99,7 @@ public sealed partial class MainWindow
 
     void OnTruck(TruckState s)
     {
+        if (s.Connected && Games.FromTelemetryName(s.GameName) is { } g && g != Games.Current) { SwitchGame(g); return; }
         truck = s;
         long now = clock.ElapsedMilliseconds;
         motion.Update(s, now);
@@ -90,8 +107,9 @@ public sealed partial class MainWindow
         mapView.SpeedKmh = s.SpeedKmh;
         cruise.Update(s, now);
         statusText.Text = !s.Connected ? "Telemetry connected - waiting for the game" : s.Paused ? "Game paused" : place;
-        speedText.Text = Math.Round(Math.Max(0, s.SpeedKmh)).ToString(CultureInfo.InvariantCulture);
-        if (s.SpeedLimitKmh > 0) { limitText.Text = s.SpeedLimitKmh.ToString(CultureInfo.InvariantCulture); limitBox.Visibility = Visibility.Visible; } else limitBox.Visibility = Visibility.Hidden;
+        speedText.Text = Math.Round(Math.Max(0, Units.Speed(s.SpeedKmh))).ToString(CultureInfo.InvariantCulture);
+        speedUnit.Text = Units.SpeedUnit;
+        if (s.SpeedLimitKmh > 0) { limitText.Text = Math.Round(Units.Speed(s.SpeedLimitKmh)).ToString(CultureInfo.InvariantCulture); limitBox.Visibility = Visibility.Visible; } else limitBox.Visibility = Visibility.Hidden;
         TrackTrip(s, now);
         UpdateBannerJob();
         if (s.Connected) { UpdateAltitude(s); CheckHill(s, now); CheckNewJob(s); CheckJobEvents(s); CheckAlerts(s); UpdatePlace(now); NavTick(); CheckGameGps(); }
@@ -144,7 +162,7 @@ public sealed partial class MainWindow
             string what = n.Instruction(next);
             SetManeuver(next, n.ShortDistance(st.DistToNextM), char.ToUpperInvariant(what[0]) + what[1..] + (next.Towards != null ? " towards " + next.Towards : ""), st.Following);
         }
-        if (!tripOpen && st.Lanes != null && st.LanesDistM * cfg.DistScale < LaneShowM) SetLaneUi(st.Lanes, n.ShortDistance(st.LanesDistM)); else SetLaneUi(null);
+        if (!tripOpen && st.Lanes != null && st.LanesDistM * cfg.GameDistScale < LaneShowM) SetLaneUi(st.Lanes, n.ShortDistance(st.LanesDistM)); else SetLaneUi(null);
         UpdatePace(n);
         float realMin = totS / paceRatio / 60f, gameMin = realMin * TimeScale;
         routeEtaGameMin = gameMin;
@@ -175,14 +193,14 @@ public sealed partial class MainWindow
             return true;
         }
         float navKm = t.Detail?.NavDistanceKm ?? 0f;
-        float gameM = navKm > 0.001f ? navKm * 1000f : MathF.Sqrt((motion.X - destX) * (motion.X - destX) + (motion.Z - destZ) * (motion.Z - destZ)) * cfg.DistScale;
+        float gameM = navKm > 0.001f ? navKm * 1000f : MathF.Sqrt((motion.X - destX) * (motion.X - destX) + (motion.Z - destZ) * (motion.Z - destZ)) * cfg.GameDistScale;
         long now = clock.ElapsedMilliseconds;
         if (motion.SpeedMps < 0.5f) { if (stillSinceMs == 0) stillSinceMs = now; } else stillSinceMs = 0;
         if (gameM < 150f || (stillSinceMs != 0 && now - stillSinceMs > 25000)) return false;
         if (!endHinted) { endHinted = true; voice.Say("The mapped route ends here. Follow the flag to the drop off point."); }
         SetBannerMessage("Mapped route ends here - follow the flag");
         ClearManeuver(); SetLaneUi(null);
-        SetInfo(destName, "To the destination: about " + n.ShortDistance(gameM / MathF.Max(1f, cfg.DistScale)) + " (the game's route)");
+        SetInfo(destName, "To the destination: about " + n.ShortDistance(gameM / MathF.Max(1f, cfg.GameDistScale)) + " (the game's route)");
         return true;
     }
 
@@ -302,6 +320,7 @@ public sealed partial class MainWindow
                     int de = res.Edges[i]; starts[i] = p;
                     for (int k = 0; k < m.DeCount(de); k++) { pts[p * 2] = m.DeX(de, k); pts[p * 2 + 1] = m.DeZ(de, k); lift[p] = (byte)(m.DeLift(de, k) * 2); p++; }
                 }
+                MapControl.SmoothJoins(pts, starts);
                 n.DistScale = distScale;
                 n.ArriveWord = legIsStop ? "your waypoint" : destIsJob ? "the destination area" : "your destination";
                 mapView.FlagOn = true; mapView.FlagLink = jobFlag != null;
@@ -473,8 +492,8 @@ public sealed partial class MainWindow
         Dlg.Input(this, "Save this trip as", def, v =>
         {
             string name = v.Trim().Length > 0 ? v.Trim() : def;
-            cfg.Trips.RemoveAll(t => t.Name == name);
-            cfg.Trips.Insert(0, new SavedTrip
+            cfg.GameTrips.RemoveAll(t => t.Name == name);
+            cfg.GameTrips.Insert(0, new SavedTrip
             {
                 Name = name, Mode = routeMode.Key, AvoidFerries = cfg.AvoidFerries, Dest = new StopPoint { X = destX, Z = destZ, Name = destName },
                 Stops = waypoints.Select(w => new StopPoint { X = w.X, Z = w.Z, Name = w.Name }).ToList(), LengthM = MathF.Max(0, routeRemainingM),
@@ -485,7 +504,7 @@ public sealed partial class MainWindow
 
     void ShowTrips()
     {
-        var rows = cfg.Trips.Select(t =>
+        var rows = cfg.GameTrips.Select(t =>
         {
             float km = t.LengthM * distScale / 1000f;
             return t.Name + "\n" + (km >= 1 ? $"{km:0} km · " : "") + $"{t.Stops.Count} waypoint{(t.Stops.Count == 1 ? "" : "s")} · " + RouteMode.ByKey(t.Mode).Label;
@@ -496,8 +515,8 @@ public sealed partial class MainWindow
 
     void TripOptions(int i)
     {
-        if (i >= cfg.Trips.Count) return;
-        var t = cfg.Trips[i];
+        if (i >= cfg.GameTrips.Count) return;
+        var t = cfg.GameTrips[i];
         var items = new List<string>();
         if (t.Start != null) items.Add("Drive this trip (to its start first)");
         items.Add(t.Start != null ? "Drive from here (skip its start)" : "Start this trip from here");
@@ -514,10 +533,10 @@ public sealed partial class MainWindow
                 {
                     string name = v.Trim();
                     if (name.Length == 0 || name == t.Name) return;
-                    cfg.Trips.RemoveAll(x => x != t && x.Name == name);
+                    cfg.GameTrips.RemoveAll(x => x != t && x.Name == name);
                     t.Name = name; cfg.Save(); Toast("Renamed to: " + name);
                 }, "Rename");
-            else { cfg.Trips.Remove(t); cfg.Save(); Toast("Deleted: " + t.Name); }
+            else { cfg.GameTrips.Remove(t); cfg.Save(); Toast("Deleted: " + t.Name); }
         });
     }
 
@@ -539,15 +558,15 @@ public sealed partial class MainWindow
 
     void AvoidRoadAt(float x, float z)
     {
-        cfg.Avoid.Add(new StopPoint { X = x, Z = z }); cfg.Save();
-        router?.SetAvoid(cfg.Avoid.Select(a => (a.X, a.Z)));
-        Toast($"Avoiding the road here ({cfg.Avoid.Count} avoided in total)");
+        cfg.GameAvoid.Add(new StopPoint { X = x, Z = z }); cfg.Save();
+        router?.SetAvoid(cfg.GameAvoid.Select(a => (a.X, a.Z)));
+        Toast($"Avoiding the road here ({cfg.GameAvoid.Count} avoided in total)");
         voice.Say("Avoiding that road"); RerouteForModeChange();
     }
 
     void ClearAvoid()
     {
-        cfg.Avoid.Clear(); cfg.Save(); router?.SetAvoid(Array.Empty<(float, float)>());
+        cfg.GameAvoid.Clear(); cfg.Save(); router?.SetAvoid(Array.Empty<(float, float)>());
         Toast("Avoided roads cleared"); RerouteForModeChange();
     }
 
@@ -605,8 +624,7 @@ public sealed partial class MainWindow
 
     string GameDist(float worldM)
     {
-        float g = worldM * distScale;
-        return g < 1000f ? Math.Max(10, (int)MathF.Round(g / 10f) * 10) + " m" : (g / 1000f).ToString("0.0", CultureInfo.InvariantCulture) + " km";
+        return Units.Short(worldM * distScale);
     }
 
     static string Direction(PoiHit h) => h.Ahead > 0.5f ? "ahead" : h.Ahead < -0.5f ? "behind" : h.Right > 0 ? "to the right" : "to the left";
@@ -635,7 +653,7 @@ public sealed partial class MainWindow
         float g = motion.GradientPct;
         string arrow = !motion.GradientValid || MathF.Abs(g) < 0.5f ? "▬" : g > 0 ? "▲" : "▼";
         string gs = motion.GradientValid ? arrow + " " + MathF.Abs(g).ToString("0.0", CultureInfo.InvariantCulture) + "%" : arrow;
-        altText.Text = gs + "\n" + Math.Round(s.Y).ToString(CultureInfo.InvariantCulture) + " m";
+        altText.Text = gs + "\n" + Units.AltText(s.Y);
         altText.Foreground = motion.GradientValid && g <= -5f ? new SolidColorBrush(Color.FromRgb(255, 170, 90))
             : motion.GradientValid && g >= 6f ? new SolidColorBrush(Color.FromRgb(255, 120, 120)) : Brushes.White;
     }

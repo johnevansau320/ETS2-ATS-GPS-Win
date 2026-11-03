@@ -1,4 +1,4 @@
-# Installs ETS2 GPS for the current user (no administrator rights): copies the exe to %LOCALAPPDATA%\Programs\ETS2 GPS
+# Installs ETS2-ATS GPS for the current user (no administrator rights): copies the exe to %LOCALAPPDATA%\Programs\ETS2 GPS
 # and adds a Start Menu shortcut. Asks whether to start it with Windows and whether to start it now;
 # use -NoPrompt to skip the questions, -Autostart / -Start to answer yes without being asked.
 param([switch]$Autostart, [switch]$Start, [switch]$NoPrompt)
@@ -26,13 +26,18 @@ foreach ($p in $wasRunning) { if (-not $p.WaitForExit(8000)) { Stop-Process -Id 
 if ($wasRunning.Count -gt 0) { Start-Sleep -Milliseconds 500 }
 Install-File $exe $dir
 $sh = New-Object -ComObject WScript.Shell
-function Shortcut($path) { $s = $sh.CreateShortcut($path); $s.TargetPath = $target; $s.WorkingDirectory = $dir; $s.Description = "ETS2 GPS"; $s.Save() }
-Shortcut (Join-Path ([Environment]::GetFolderPath("Programs")) "ETS2 GPS.lnk")
-Write-Host "Installed to $dir (Start Menu: ETS2 GPS)"
+function Shortcut($path) { $s = $sh.CreateShortcut($path); $s.TargetPath = $target; $s.WorkingDirectory = $dir; $s.Description = "ETS2-ATS GPS"; $s.Save() }
+# the app was called "ETS2 GPS" before: replace its old-named shortcuts (keeping autostart if it was on)
+foreach ($k in "Programs", "Startup") {
+    $oldLnk = Join-Path ([Environment]::GetFolderPath($k)) "ETS2 GPS.lnk"
+    if (Test-Path $oldLnk) { Remove-Item $oldLnk -Force; if ($k -eq "Startup") { $Autostart = $true } }
+}
+Shortcut (Join-Path ([Environment]::GetFolderPath("Programs")) "ETS2-ATS GPS.lnk")
+Write-Host "Installed to $dir (Start Menu: ETS2-ATS GPS)"
 if (-not $NoPrompt -and -not $Autostart) {
     if ((Read-Host "Also start it automatically when you log in to Windows? (y/n)") -eq "y") { $Autostart = $true }
 }
-if ($Autostart) { Shortcut (Join-Path ([Environment]::GetFolderPath("Startup")) "ETS2 GPS.lnk"); Write-Host "Autostart added." }
+if ($Autostart) { Shortcut (Join-Path ([Environment]::GetFolderPath("Startup")) "ETS2-ATS GPS.lnk"); Write-Host "Autostart added." }
 if (-not $NoPrompt -and -not $Start) {
     if ((Read-Host "Start it now? (y/n)") -eq "y") { $Start = $true }
 }
@@ -54,4 +59,4 @@ if (Test-Path $ov) {
 }
 
 # started again only now, so that it starts the newly installed lane overlay as well
-if ($wasRunning.Count -gt 0 -and -not $Start) { Start-Process $target; Write-Host "ETS2 GPS was running: closed for the update and started again." }
+if ($wasRunning.Count -gt 0 -and -not $Start) { Start-Process $target; Write-Host "ETS2-ATS GPS was running: closed for the update and started again." }

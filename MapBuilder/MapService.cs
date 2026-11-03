@@ -20,11 +20,13 @@ public sealed class MapMeta
 /// </summary>
 public static class MapService
 {
-    public static string MapPath => Path.Combine(AppSettings.Dir, "etsmap.bin");
-    public static string MetaPath => Path.Combine(AppSettings.Dir, "etsmap.meta.json");
-    public static string AssetsPath => Path.Combine(AppSettings.Dir, "etsassets.bin");
-    public static string DropsPath => Path.Combine(AppSettings.Dir, "etsmap.drops.json");
-    public static string LogPath => Path.Combine(AppSettings.Dir, "map_build.log");
+    // one set of files per game: etsmap.bin ... for ETS2, atsmap.bin ... for ATS
+    static string P => Games.Current.FilePrefix;
+    public static string MapPath => Path.Combine(AppSettings.Dir, P + "map.bin");
+    public static string MetaPath => Path.Combine(AppSettings.Dir, P + "map.meta.json");
+    public static string AssetsPath => Path.Combine(AppSettings.Dir, P + "assets.bin");
+    public static string DropsPath => Path.Combine(AppSettings.Dir, P + "map.drops.json");
+    public static string LogPath => Path.Combine(AppSettings.Dir, Games.Current == Games.Ets2 ? "map_build.log" : P + "map_build.log");
 
     public static MapMeta? ReadMeta()
     {

@@ -9,6 +9,8 @@ public static class Lift
 {
     const double CellM = 24, HitDist = 6.5, MinGap = 4.2, MaxLift = 24, ReachM = 150, SampleM = 5;
 
+    static long Key(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
+
     public sealed class Edge
     {
         public ulong A, B;
@@ -22,8 +24,7 @@ public static class Lift
         var result = new byte[]?[n];
         // grid of road segments
         var grid = new Dictionary<long, List<(int E, int S)>>();
-        static long Key(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
-        for (int e = 0; e < n; e++)
+            for (int e = 0; e < n; e++)
         {
             var ed = edges[e];
             for (int i = 0; i + 1 < ed.X.Length; i++)
@@ -95,11 +96,14 @@ public static class Lift
             }
         }
 
-        for (int e = 0; e < n; e++)
+        // the lowest road passing under each point of every road: read-only, so the roads are checked in parallel (the lifting below
+        // only takes maxima, and runs in the same order as before, so the map comes out the same)
+        var cells = grid.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray());
+        var unders = new double[]?[n];
+        Parallel.For(0, n, e =>
         {
             var ed = edges[e];
-            if (ed.X.Length < 2) continue;
-            // lowest road passing under each point of this road
+            if (ed.X.Length < 2) return;
             var under = new double[ed.X.Length];
             Array.Fill(under, double.MaxValue);
             bool any = false;
@@ -117,11 +121,13 @@ public static class Lift
                     for (int ax = -1; ax <= 1; ax++)
                         for (int az = -1; az <= 1; az++)
                         {
-                            if (!grid.TryGetValue(Key(cx + ax, cz + az), out var cell)) continue;
+                            if (!cells.TryGetValue(Key(cx + ax, cz + az), out var cell)) continue;
                             foreach (var (oe, os) in cell)
                             {
                                 if (oe == e) continue;
                                 var o = edges[oe];
+                                // a road at about the same height can never be far enough below: skip it before the distance maths
+                                if (py - Math.Min(o.Y[os], o.Y[os + 1]) < MinGap - 0.001) continue;
                                 double sx = o.X[os + 1] - o.X[os], sz = o.Z[os + 1] - o.Z[os];
                                 double l2 = sx * sx + sz * sz;
                                 double u = l2 < 1e-9 ? 0 : Math.Clamp(((px - o.X[os]) * sx + (pz - o.Z[os]) * sz) / l2, 0, 1);
@@ -139,7 +145,14 @@ public static class Lift
                     }
                 }
             }
-            if (!any) continue;
+            if (any) unders[e] = under;
+        });
+
+        for (int e = 0; e < n; e++)
+        {
+            var ed = edges[e];
+            var under = unders[e];
+            if (under == null) continue;
             for (int i = 0; i < under.Length; i++)
             {
                 if (under[i] == double.MaxValue) continue;

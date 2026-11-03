@@ -29,7 +29,7 @@ public static class TripFile
             }
             w.WriteStartObject();
             w.WriteString("format", Format); w.WriteNumber("version", Version);
-            w.WriteString("note", "ETS2 GPS trip file. Positions are map coordinates: they fit the same map (game and ProMods versions) they were made on.");
+            w.WriteString("note", "ETS2-ATS GPS trip file. Positions are map coordinates: they fit the same map (game and ProMods versions) they were made on.");
             w.WriteStartArray("trips");
             foreach (var t in trips)
             {
@@ -74,8 +74,8 @@ public static class TripFile
         {
             using var doc = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 16, AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
             var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("format", out var f) || f.GetString() != Format) return new Result(none, 0, "This is not an ETS2 GPS trip file");
-            if (root.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.Number && v.GetInt32() > Version) return new Result(none, 0, "This trip file is from a newer version of ETS2 GPS - update the app");
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("format", out var f) || f.GetString() != Format) return new Result(none, 0, "This is not an ETS2-ATS GPS trip file");
+            if (root.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.Number && v.GetInt32() > Version) return new Result(none, 0, "This trip file is from a newer version of ETS2-ATS GPS - update the app");
             if (!root.TryGetProperty("trips", out var arr) || arr.ValueKind != JsonValueKind.Array) return new Result(none, 0, "The file contains no trips");
             var list = new List<SavedTrip>(); int skipped = 0;
             foreach (var e in arr.EnumerateArray())
@@ -105,7 +105,7 @@ public static class TripFile
             }
             return new Result(list, skipped, null);
         }
-        catch (JsonException) { return new Result(none, 0, "This is not an ETS2 GPS trip file"); }
+        catch (JsonException) { return new Result(none, 0, "This is not an ETS2-ATS GPS trip file"); }
         catch (Exception e) { return new Result(none, 0, "Could not read the file: " + e.Message); }
     }
 }

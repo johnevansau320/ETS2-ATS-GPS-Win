@@ -9,11 +9,11 @@ public sealed partial class MainWindow
     void TripFileMenu()
     {
         var items = new List<string> { "Import trips from a file…" };
-        if (cfg.Trips.Count > 0) items.Add("Export all trips…");
+        if (cfg.GameTrips.Count > 0) items.Add("Export all trips…");
         Dlg.Pick(this, "Share trips", items, i =>
         {
             if (i == 0) ImportTripsDialog();
-            else ExportTripsDialog(cfg.Trips.ToList(), "ETS2 trips");
+            else ExportTripsDialog(cfg.GameTrips.ToList(), "ETS2 trips");
         }, "Trip files (*.ets2trip) can be sent to friends or posted online; the Android app, the web version and this app all read them.");
     }
 
@@ -30,7 +30,7 @@ public sealed partial class MainWindow
         var dlg = new SaveFileDialog
         {
             Title = "Export trips", FileName = SafeFileName(defaultName), DefaultExt = ".ets2trip", AddExtension = true,
-            Filter = "ETS2 GPS trip (*.ets2trip)|*.ets2trip|JSON (*.json)|*.json",
+            Filter = "ETS2-ATS GPS trip (*.ets2trip)|*.ets2trip|JSON (*.json)|*.json",
         };
         if (dlg.ShowDialog(this) != true) return;
         try
@@ -46,7 +46,7 @@ public sealed partial class MainWindow
         var dlg = new OpenFileDialog
         {
             Title = "Import trips", CheckFileExists = true,
-            Filter = "ETS2 GPS trips (*.ets2trip;*.json)|*.ets2trip;*.json|All files (*.*)|*.*",
+            Filter = "ETS2-ATS GPS trips (*.ets2trip;*.json)|*.ets2trip;*.json|All files (*.*)|*.*",
         };
         if (dlg.ShowDialog(this) != true) return;
         Toast(ImportTripsFromFile(dlg.FileName));
@@ -71,11 +71,11 @@ public sealed partial class MainWindow
             // positions outside the loaded map: made for a different map, they could not be routed
             if (m != null && new[] { t.Dest }.Concat(t.Stops).Concat(t.Start != null ? new[] { t.Start } : Array.Empty<StopPoint>())
                     .Any(p => p.X < m.MinX - 20000 || p.X > m.MaxX + 20000 || p.Z < m.MinZ - 20000 || p.Z > m.MaxZ + 20000)) { outside++; continue; }
-            if (cfg.Trips.Any(x => SameTrip(x, t))) { dupes++; continue; }
+            if (cfg.GameTrips.Any(x => SameTrip(x, t))) { dupes++; continue; }
             string name = t.Name; int n = 2;
-            while (cfg.Trips.Any(x => x.Name == name)) name = $"{t.Name} ({n++})";
+            while (cfg.GameTrips.Any(x => x.Name == name)) name = $"{t.Name} ({n++})";
             t.Name = name;
-            cfg.Trips.Insert(0, t);
+            cfg.GameTrips.Insert(0, t);
             added++;
         }
         if (added > 0) cfg.Save();
@@ -96,8 +96,8 @@ public sealed partial class MainWindow
     {
         try
         {
-            if (exportPath != null) { File.WriteAllText(exportPath, TripFile.Serialize(cfg.Trips), new UTF8Encoding(false)); File.WriteAllText(exportPath + ".result.txt", $"exported {cfg.Trips.Count}"); }
-            if (importPath != null) File.WriteAllText(importPath + ".result.txt", ImportTripsFromFile(importPath) + $"; now {cfg.Trips.Count} trips");
+            if (exportPath != null) { File.WriteAllText(exportPath, TripFile.Serialize(cfg.GameTrips), new UTF8Encoding(false)); File.WriteAllText(exportPath + ".result.txt", $"exported {cfg.GameTrips.Count}"); }
+            if (importPath != null) File.WriteAllText(importPath + ".result.txt", ImportTripsFromFile(importPath) + $"; now {cfg.GameTrips.Count} trips");
         }
         catch (Exception e) { File.WriteAllText((exportPath ?? importPath) + ".result.txt", "FAILED " + e.Message); }
     }

@@ -17,7 +17,7 @@ function showPlanner() {
   plan.stops.forEach((s, i) => { rows.push('Stop ' + (i + 1) + ':  ' + s.name); acts.push(() => planStopOptions(i)); });
   rows.push('Destination:  ' + (plan.dest ? plan.dest.name : '(tap to choose)')); acts.push(destOptions);
   const summary = plan.len >= 0
-    ? gameDist(plan.len) + '  ·  Real ' + formatDuration(plan.time / 60) + '  ·  Sim ' + formatDuration(plan.time / 60 * TIME_SCALE)
+    ? gameDist(plan.len) + '  ·  Real ' + formatDuration(plan.time / 60) + '  ·  Sim ' + formatDuration(plan.time / 60 * timeScale())
     : 'Plan a trip without the game running: choose a start, add stops, choose the destination, then preview it on the map.';
   modal({
     title: plan.editName ? 'Plan trip: ' + plan.editName : 'Plan a trip', message: summary, items: rows, onItem: (i) => acts[i](),
@@ -128,6 +128,7 @@ function computePlan() {
     starts[i] = p;
     for (let k = 0; k < m.deCount(de); k++) { line[p * 2] = m.deX(de, k); line[p * 2 + 1] = m.deZ(de, k); lift[p] = Math.round(m.deLift(de, k) * 2); p++; }
   });
+  smoothJoins(line, starts);
   mapView.planPts = line; mapView.planLift = lift; mapView.planEdgePt = starts;
   plan.len = len; plan.time = time;
   mapView.pins = [{ x: start.x, z: start.z, label: 'S', color: 'rgb(30,150,80)' }]
@@ -166,7 +167,7 @@ function updatePlanBar() {
   const from = plan.start ? plan.start.name : (haveTruckFix() ? myPosition().name : '?');
   const stops = plan.stops.length ? '  ·  ' + plan.stops.length + ' stop' + (plan.stops.length > 1 ? 's' : '') : '';
   $('planText').textContent = from + ' → ' + (plan.dest ? plan.dest.name : '') + stops + '\n' +
-    gameDist(plan.len) + '  ·  Real ' + formatDuration(plan.time / 60) + '  ·  Sim ' + formatDuration(plan.time / 60 * TIME_SCALE);
+    gameDist(plan.len) + '  ·  Real ' + formatDuration(plan.time / 60) + '  ·  Sim ' + formatDuration(plan.time / 60 * timeScale());
 }
 
 function exitPlanView() {
@@ -246,7 +247,7 @@ function tripsToFileText(list) {
   const pt = (p) => (p ? { x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10, name: p.name } : null);
   return JSON.stringify({
     format: TRIP_FORMAT, version: 1,
-    note: 'ETS2 GPS trip file. Positions are map coordinates: they fit the same map (game and ProMods versions) they were made on.',
+    note: 'ETS2-ATS GPS trip file. Positions are map coordinates: they fit the same map (game and ProMods versions) they were made on.',
     trips: list.map((t) => ({ name: t.name, mode: t.mode, avoidFerries: !!t.ferries, start: pt(t.start), stops: t.stops.map(pt), dest: pt(t.dest), lengthM: Math.round(t.len || 0) })),
   }, null, 2);
 }
@@ -255,9 +256,9 @@ function parseTripFile(text) {
   const fail = (error) => ({ trips: [], skipped: 0, error });
   if (typeof text !== 'string' || text.length > TRIP_MAX.chars) return fail('That file is too big to be a trip file');
   let root;
-  try { root = JSON.parse(text); } catch (e) { return fail('This is not an ETS2 GPS trip file'); }
-  if (!root || root.format !== TRIP_FORMAT) return fail('This is not an ETS2 GPS trip file');
-  if (typeof root.version === 'number' && root.version > 1) return fail('This trip file is from a newer version of ETS2 GPS - update the app');
+  try { root = JSON.parse(text); } catch (e) { return fail('This is not an ETS2-ATS GPS trip file'); }
+  if (!root || root.format !== TRIP_FORMAT) return fail('This is not an ETS2-ATS GPS trip file');
+  if (typeof root.version === 'number' && root.version > 1) return fail('This trip file is from a newer version of ETS2-ATS GPS - update the app');
   if (!Array.isArray(root.trips)) return fail('The file contains no trips');
   const clean = (s, fb) => { s = String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, '').trim(); if (!s) s = fb; return s.length > TRIP_MAX.name ? s.slice(0, TRIP_MAX.name) : s; };
   const point = (o, fb) => {

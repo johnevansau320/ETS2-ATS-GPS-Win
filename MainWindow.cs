@@ -18,10 +18,10 @@ public sealed class GlyphControl : FrameworkElement
     }
 }
 
-/// <summary>ETS2 GPS for Windows: the map, route guidance, lane panel and trip screen in one window (UI part).</summary>
+/// <summary>ETS2-ATS GPS for Windows: the map, route guidance, lane panel and trip screen in one window (UI part).</summary>
 public sealed partial class MainWindow : Window
 {
-    const float TimeScale = 19f;
+    static float TimeScale => Games.Current == Games.Ats ? 20f : 19f;   // game minutes per real minute (ETS2 1:19, ATS 1:20)
     const float LaneShowM = 50_000f;   // the lane panel appears this far (game metres) before the junction
 
     readonly AppSettings cfg;
@@ -47,6 +47,7 @@ public sealed partial class MainWindow : Window
     readonly TextBlock speedText = Ui.Text("0", 68, null, FontWeights.Bold), speedUnit = Ui.Text("km/h", 22, Ui.Dim);
     readonly Border limitBox = new();
     readonly TextBlock limitText = Ui.Text("--", 38, Brushes.Black, FontWeights.Bold);
+    readonly TextBlock limitCaption = new() { Text = "SPEED\nLIMIT", FontSize = 13, FontWeight = FontWeights.Bold, Foreground = Brushes.Black, TextAlignment = TextAlignment.Center, LineHeight = 13, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
     readonly TextBlock infoText = Ui.Text("No route", 30), statusText = Ui.Text("", 13, new SolidColorBrush(Color.FromArgb(220, 255, 200, 120)));
     readonly TextBlock altText = Ui.Text("-- m", 44, null, FontWeights.Bold);
     readonly TextBlock toastText = Ui.Text("", 15);
@@ -61,14 +62,25 @@ public sealed partial class MainWindow : Window
     string place = "", bannerMsg = "";
     long lastFrameMs;
 
+    void StyleLimitSign()
+    {
+        bool us = Games.Current == Games.Ats;
+        limitCaption.Visibility = us ? Visibility.Visible : Visibility.Collapsed;
+        limitText.FontSize = us ? 34 : 38; limitText.Margin = us ? new Thickness(0, -4, 0, 0) : new Thickness(0);
+        limitBox.Width = us ? 78 : 92;
+        limitBox.BorderBrush = Brushes.Black; limitBox.BorderThickness = new Thickness(us ? 3 : 0); limitBox.CornerRadius = new CornerRadius(us ? 6 : 0);
+    }
+
+    static string AppTitle => Games.Current == Games.Ats ? "ETS2-ATS GPS - American Truck Simulator" : "ETS2-ATS GPS - Euro Truck Simulator 2";
+
     public MainWindow(AppSettings settings)
     {
         cfg = settings;
         routeMode = RouteMode.ByKey(cfg.RouteMode);
-        distScale = cfg.RealDistances ? 1f : cfg.DistScale;
+        distScale = cfg.RealDistances ? 1f : cfg.GameDistScale;
         cruise = new CruiseAssist(() => cfg.CruiseAutoLimit);
         cruise.Notice += msg => Dispatcher.BeginInvoke(new Action(() => Toast(msg)));   // a toast, not a dialog: nothing may take the focus away from the game
-        Title = "ETS2 GPS";
+        Title = AppTitle;
         transparentWindow = cfg.Opacity < 0.999;
         if (transparentWindow) AllowsTransparency = true;
         WindowStyle = WindowStyle.None;
@@ -291,8 +303,12 @@ public sealed partial class MainWindow : Window
         speedText.HorizontalAlignment = HorizontalAlignment.Center; speedUnit.HorizontalAlignment = HorizontalAlignment.Center;
         sp.Children.Add(speedText); sp.Children.Add(speedUnit);
         bb.Children.Add(sp);
-        limitBox.Child = limitText; limitBox.Background = Brushes.White; limitBox.Width = 92; limitBox.Height = 92; limitBox.Visibility = Visibility.Hidden;
+        // the sign: a plain white square for ETS2, an American "SPEED LIMIT" sign for ATS (see StyleLimitSign)
+        var limitStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        limitCaption.HorizontalAlignment = HorizontalAlignment.Center; limitStack.Children.Add(limitCaption); limitStack.Children.Add(limitText);
+        limitBox.Child = limitStack; limitBox.Background = Brushes.White; limitBox.Width = 92; limitBox.Height = 92; limitBox.Visibility = Visibility.Hidden;
         limitText.HorizontalAlignment = HorizontalAlignment.Center;
+        StyleLimitSign();
         Grid.SetColumn(limitBox, 1); bb.Children.Add(limitBox);
         infoText.TextWrapping = TextWrapping.Wrap; infoText.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(infoText, 2); bb.Children.Add(infoText);
@@ -564,8 +580,8 @@ public sealed partial class MainWindow : Window
         if (j == null) { bJob1.Text = ""; bJob2.Text = ""; return; }
         bJob1.Text = PlaceName(j.SrcCompany, j.SrcCity) + "  →  " + PlaceName(j.DestCompany, j.DestCity);
         var parts = new List<string>();
-        if (j.Cargo.Length > 0) parts.Add(j.Cargo + (j.MassKg > 0 ? " " + (j.MassKg / 1000f).ToString("0.0", CultureInfo.InvariantCulture) + " t" : ""));
-        if (j.Income > 0) parts.Add("€" + j.Income.ToString("N0", CultureInfo.InvariantCulture));
+        if (j.Cargo.Length > 0) parts.Add(j.Cargo + (j.MassKg > 0 ? " " + Units.Mass(j.MassKg) : ""));
+        if (j.Income > 0) parts.Add(Units.Money + j.Income.ToString("N0", CultureInfo.InvariantCulture));
         float etaMin = nav?.Active == true && routeEtaGameMin >= 0 ? routeEtaGameMin : truck!.NavEtaMin;
         bool late = false;
         if (j.DueMin >= 0)

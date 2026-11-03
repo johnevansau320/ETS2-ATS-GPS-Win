@@ -4,6 +4,74 @@
 
 const MAP_STYLE = { bg: 'rgb(34,40,54)' };
 
+/**
+ * The game's road pieces do not meet exactly: a road ends on its centre line while the junction piece after it starts on the lane, a few metres to the side. Drawn as is, the route steps sideways at every join. Both sides of a join are eased towards its middle over a short stretch (only points move, so indices into the line stay valid).
+ */
+function smoothJoins(pts, starts) {
+  const o = Float32Array.from(pts), n = pts.length / 2;
+  const seg = (p, q) => Math.hypot(o[q * 2] - o[p * 2], o[q * 2 + 1] - o[p * 2 + 1]);
+  for (let i = 1; i < starts.length; i++) {
+    const s = starts[i], e = s - 1, a0 = starts[i - 1], b1 = i + 1 < starts.length ? starts[i + 1] - 1 : n - 1;
+    if (e < a0 || s > b1) continue;
+    const gx = o[s * 2] - o[e * 2], gz = o[s * 2 + 1] - o[e * 2 + 1], g = Math.hypot(gx, gz);
+    if (g < 0.3 || g > 25) continue; // joined already, or a real gap (ferry)
+    const len = Math.min(40, Math.max(8, g * 4));
+    const ease = (from, to, step, sign) => {
+      let total = 0;
+      for (let k = from; k !== to; k += step) total += seg(k, k + step);
+      const l = Math.max(0.01, Math.min(len, total / 2));
+      for (let k = from, d = 0; ; k += step) {
+        const t = 1 - d / l;
+        if (t <= 0) break;
+        pts[k * 2] += sign * gx / 2 * t; pts[k * 2 + 1] += sign * gz / 2 * t;
+        if (k === to) break;
+        d += seg(k, k + step);
+      }
+    };
+    ease(e, a0, -1, 1);   // the end of the piece before moves half way towards the next
+    ease(s, b1, 1, -1);   // the start of the next piece moves half way back
+  }
+  smoothLine(pts); smoothLine(pts);
+}
+
+/**
+ * Inside junction pieces the route still hops from lane to lane in short sideways steps. Each point is replaced by the average of the line
+ * around it (a triangle-weighted window along the line, up to 60 m each way; done twice). Where the road really bends the window shrinks, so a bend
+ * is never cut by more than about half a metre; the ends of the line and real gaps (ferries) stay where they are.
+ */
+function smoothLine(pts) {
+  const n = pts.length / 2, o = Float32Array.from(pts), s = new Float64Array(n);
+  for (let i = 1; i < n; i++) s[i] = s[i - 1] + Math.hypot(o[i * 2] - o[i * 2 - 2], o[i * 2 + 1] - o[i * 2 - 1]);
+  for (let a = 0; a < n;) {
+    let b = a;   // one run of the line without a gap
+    while (b + 1 < n && s[b + 1] - s[b] <= 25) b++;
+    const at = (t) => {   // the point at distance t along the run
+      t = Math.max(s[a], Math.min(s[b], t));
+      let lo = a, hi = b;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (s[m] <= t) lo = m; else hi = m; }
+      const f = s[hi] > s[lo] ? (t - s[lo]) / (s[hi] - s[lo]) : 0;
+      return [o[lo * 2] + (o[hi * 2] - o[lo * 2]) * f, o[lo * 2 + 1] + (o[hi * 2 + 1] - o[lo * 2 + 1]) * f];
+    };
+    for (let i = a + 1; i < b; i++) {
+      const t = s[i];
+      // how sharply the road bends here: heading 15-60 m before against 15-60 m after
+      const p0 = at(t - 60), p1 = at(t - 15), p2 = at(t + 15), p3 = at(t + 60);
+      const h1 = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]), h2 = Math.atan2(p3[1] - p2[1], p3[0] - p2[0]);
+      let turn = Math.abs(h2 - h1); if (turn > Math.PI) turn = 2 * Math.PI - turn;
+      const radius = 75 / Math.max(turn, 1e-3);
+      const w = Math.min(60, Math.sqrt(12 * radius * 0.5), t - s[a], s[b] - t);   // a bend of radius r is cut by about w*w/(12r)
+      if (w < 1) continue;
+      let sx = 0, sz = 0, sw = 0;
+      for (let k = -10; k <= 10; k++) {
+        const q = at(t + w * k / 10), wt = 11 - Math.abs(k);
+        sx += q[0] * wt; sz += q[1] * wt; sw += wt;
+      }
+      pts[i * 2] = sx / sw; pts[i * 2 + 1] = sz / sw;
+    }
+    a = b + 1;
+  }
+}
+
 class MapView {
   constructor(canvas) {
     this.canvas = canvas;
@@ -323,6 +391,16 @@ class MapView {
       if (border) { c.strokeStyle = border; c.lineWidth = 1.6; c.stroke(); }
       c.fillStyle = fg; c.fillText(txt, sx, sy + 1); c.textBaseline = 'alphabetic';
     };
+    // road-number shield: E roads green, others blue; in ATS Interstates blue with a red top, US routes white, state routes and loops white pills
+    const shield = (txt, sx, sy) => {
+      if (Games.current !== Games.ATS) { pill(txt, sx, sy, txt[0] === 'E' ? 'rgb(0,128,72)' : 'rgb(0,64,176)', '#fff', '#fff', 17, 6); return; }
+      if (!txt.startsWith('I-')) { pill(txt, sx, sy, '#fff', '#141414', '#141414', 17, 6); return; }
+      c.font = 'bold 17px sans-serif';
+      const w = c.measureText(txt).width + 12, h = 23, x0 = sx - w / 2, y0 = sy - h / 2;
+      c.save(); c.beginPath(); if (c.roundRect) c.roundRect(x0, y0, w, h, 4); else c.rect(x0, y0, w, h); c.clip();
+      c.fillStyle = 'rgb(0,64,176)'; c.fillRect(x0, y0, w, h); c.fillStyle = 'rgb(190,30,45)'; c.fillRect(x0, y0, w, h * 0.26); c.restore();
+      pill(txt, sx, sy, 'rgba(0,0,0,0)', '#fff', '#fff', 17, 6);
+    };
     const visible = (q, mx, my) => !((tilted && q[2] < 0.3) || q[0] < -mx || q[0] > W + mx || q[1] < -my || q[1] > H + my);
 
     // finishing flag at the destination (the end of the mapped road can be well short of it)
@@ -393,7 +471,7 @@ class MapView {
         if (dx > radius || dx < -radius || dz > radius || dz < -radius) continue;
         const q = proj(rl.x, rl.z);
         if (!visible(q, 40, 20)) continue;
-        at(q[0], q[1], fs(q[2]), () => pill(rl.text, q[0], q[1], rl.text[0] === 'E' ? 'rgb(0,128,72)' : 'rgb(0,64,176)', '#fff', '#fff', 17, 6));
+        at(q[0], q[1], fs(q[2]), () => shield(rl.text, q[0], q[1]));
       }
     }
     // companies: the logo when the game has one, otherwise the name

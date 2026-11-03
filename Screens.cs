@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -45,7 +45,7 @@ public sealed partial class MainWindow
         var j = s.Job; var dt = s.Detail; var n = nav;
         bool routingNow = n?.Active == true && routeRemainingM >= 0f;
         // this screen always counts in game kilometres (planned distance, range and consumption come from the game), whatever the Real / Sim distance setting
-        float remGameKm = routingNow ? routeRemainingM * cfg.DistScale / 1000f : dt.NavDistanceKm;
+        float remGameKm = routingNow ? routeRemainingM * cfg.GameDistScale / 1000f : dt.NavDistanceKm;
         float realMin = routingNow && routeEtaGameMin >= 0f ? routeEtaGameMin / TimeScale : -1f;
         float simMin = routingNow ? routeEtaGameMin : (s.NavEtaMin >= 0f ? s.NavEtaMin : -1f);
         int planned = j?.PlannedKm ?? 0;
@@ -65,8 +65,8 @@ public sealed partial class MainWindow
         bar.Children.Add(fill);
         bar.SizeChanged += (_, e) => fill.Width = e.NewSize.Width * progress;
         Grid.SetRow(bar, 1); Grid.SetColumnSpan(bar, 2); head.Children.Add(bar);
-        T($"{Fmt(remGameKm)} km left" + (planned > 0 ? $" of {Fmt(planned)} km · {progress * 100:0}%" : ""), HorizontalAlignment.Left, 2, 0);
-        T("Local " + now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  ·  ETS2 " + ClockText(s.GameTimeMin), HorizontalAlignment.Right, 2, 1);
+        T($"{Units.LongText(remGameKm)} left" + (planned > 0 ? $" of {Units.LongText(planned)} · {progress * 100:0}%" : ""), HorizontalAlignment.Left, 2, 0);
+        T("Local " + now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  ·  " + Games.Current.Short + " " + ClockText(s.GameTimeMin), HorizontalAlignment.Right, 2, 1);
         page.Children.Add(new Border { Child = head, Background = Ui.Frozen(Color.FromRgb(24, 33, 45)), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(5, 8, 5, 5) });
 
         var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
@@ -78,15 +78,15 @@ public sealed partial class MainWindow
             bool late = j.DueMin >= 0f && simMin >= 0f && simMin > j.DueMin;
             var rows = new List<(string, string, Brush?)>
             {
-                ("Cargo", j.Cargo + (j.MassKg > 0 ? "  " + Fmt(j.MassKg / 1000f, "0.0") + " t" : ""), null), ("Units", j.Units.ToString(CultureInfo.InvariantCulture), null),
+                ("Cargo", j.Cargo + (j.MassKg > 0 ? "  " + Units.Mass(j.MassKg) : ""), null), ("Units", j.Units.ToString(CultureInfo.InvariantCulture), null),
             };
-            if (j.Income > 0) rows.Add(("Income", "€" + Fmt(j.Income), null));
+            if (j.Income > 0) rows.Add(("Income", Units.Money + Fmt(j.Income), null));
             if (j.DueMin >= 0f)
             {
                 rows.Add(("Deadline in", FormatDuration(j.DueMin) + " (sim)", late ? Red : null));
                 if (simMin >= 0f) { float sp = j.DueMin - simMin; rows.Add((late ? "Running late by" : "Time to spare", FormatDuration(MathF.Abs(sp)) + " (sim)", late ? Red : GreenText)); }
             }
-            if (planned > 0) rows.Add(("Planned distance", planned + " km", null));
+            if (planned > 0) rows.Add(("Planned distance", Units.LongText(planned), null));
             Add(Card("JOB", rows.ToArray()));
         }
         else Add(Card("JOB", ("Status", "no active job", null)));
@@ -94,11 +94,11 @@ public sealed partial class MainWindow
         var rr = new List<(string, string, Brush?)> { ("Destination", hasDest ? destName : "none", null) };
         if (routingNow && n != null)
         {
-            rr.Add(("Remaining", Fmt(remGameKm) + " km", null)); rr.Add(("Real time left", FormatDuration(realMin), null));
+            rr.Add(("Remaining", Units.LongText(remGameKm), null)); rr.Add(("Real time left", FormatDuration(realMin), null));
             rr.Add(("Sim time left", FormatDuration(simMin), null)); rr.Add(("Arrive (sim clock)", ClockText(s.GameTimeMin + simMin), null));
             if (lastNextText.Length > 0) rr.Add(("Next", char.ToUpperInvariant(lastNextText[0]) + lastNextText[1..], null));
         }
-        else { rr.Add(("Game route left", Fmt(remGameKm) + " km", null)); if (simMin >= 0f) rr.Add(("Game ETA (sim)", FormatDuration(simMin), null)); }
+        else { rr.Add(("Game route left", Units.LongText(remGameKm), null)); if (simMin >= 0f) rr.Add(("Game ETA (sim)", FormatDuration(simMin), null)); }
         rr.Add(("Route type", routeMode.Label, null));
         rr.Add(("Ferries", cfg.AvoidFerries ? "avoided" : "allowed", null));
         Add(Card("ROUTE", rr.ToArray()));
@@ -106,9 +106,9 @@ public sealed partial class MainWindow
         float fr = dt.FuelCapL > 0f ? dt.FuelL / dt.FuelCapL : 0f;
         Brush? fc = fr < 0.12f ? Red : fr < 0.25f ? Amber : null;
         Add(Card("TRUCK", ("Truck", dt.TruckName.Length > 0 ? dt.TruckName : "-", null),
-            ("Fuel", $"{dt.FuelL:0} / {dt.FuelCapL:0} L  ({fr * 100f:0}%)", fc), ("Range", Fmt(dt.RangeKm) + " km", null),
-            ("Consumption", Fmt(dt.ConsumptionLPerKm * 100f, "0.0") + " L/100 km", null), ("Odometer", Fmt(dt.OdometerKm) + " km", null),
-            ("Speed", $"{Math.Round(Math.Max(0, s.SpeedKmh))} km/h" + (s.SpeedLimitKmh > 0 ? $"  (limit {s.SpeedLimitKmh})" : ""), null)));
+            ("Fuel", $"{Fmt(Units.Fuel(dt.FuelL))} / {Units.FuelText(dt.FuelCapL)}  ({fr * 100f:0}%)", fc), ("Range", Units.LongText(dt.RangeKm), null),
+            ("Consumption", Units.Consumption(dt.ConsumptionLPerKm), null), ("Odometer", Units.LongText(dt.OdometerKm), null),
+            ("Speed", Units.SpeedText(s.SpeedKmh) + (s.SpeedLimitKmh > 0 ? $"  (limit {Math.Round(Units.Speed(s.SpeedLimitKmh))})" : ""), null)));
 
         if (dt.TrailerAttached)
             Add(Card("TRAILER & CARGO", ("Trailer", dt.TrailerName.Length > 0 ? dt.TrailerName : "-", null), ("Plate", dt.TrailerPlate.Length > 0 ? dt.TrailerPlate : "-", null),
@@ -116,15 +116,15 @@ public sealed partial class MainWindow
                 ("Body damage", $"{dt.TrailerBody:0}%", DamageBrush(dt.TrailerBody)), ("Cargo damage", $"{dt.CargoDamage:0}%", DamageBrush(dt.CargoDamage))));
         else Add(Card("TRAILER & CARGO", ("Trailer", "none attached", null)));
 
-        float drivenM = MathF.Max(0f, motion.Travelled - tripBase), driven = drivenM * cfg.DistScale / 1000f;
+        float drivenM = MathF.Max(0f, motion.Travelled - tripBase), driven = drivenM * cfg.GameDistScale / 1000f;
         float avg = tripDriveMs > 1000 ? drivenM / (tripDriveMs / 1000f) * 3.6f : 0f;
         var tc = new List<(string, string, Brush?)>
         {
-            ("Distance driven", Fmt(driven) + " km", null), ("Driving time (real)", FormatDuration(tripDriveMs / 60000f), null),
-            ("Driving time (sim)", FormatDuration(tripDriveMs / 60000f * TimeScale), null), ("Average speed", Fmt(avg) + " km/h", null), ("Top speed", Fmt(tripMaxKmh) + " km/h", null),
-            ("Climbed / descended", $"{elev.Ascent():0} / {elev.Descent():0} m", null), ("Fuel used", Fmt(tripFuelUsed) + " L", null),
+            ("Distance driven", Units.LongText(driven), null), ("Driving time (real)", FormatDuration(tripDriveMs / 60000f), null),
+            ("Driving time (sim)", FormatDuration(tripDriveMs / 60000f * TimeScale), null), ("Average speed", Units.SpeedText(avg), null), ("Top speed", Units.SpeedText(tripMaxKmh), null),
+            ("Climbed / descended", $"{Units.Alt(elev.Ascent()):0} / {Units.AltText(elev.Descent())}", null), ("Fuel used", Units.FuelText(tripFuelUsed), null),
         };
-        if (driven > 5f && tripFuelUsed > 0f) tc.Add(("Trip consumption", Fmt(tripFuelUsed / driven * 100f, "0.0") + " L/100 km", null));
+        if (driven > 5f && tripFuelUsed > 0f) tc.Add(("Trip consumption", Units.Consumption(tripFuelUsed / driven), null));
         Add(Card("THIS TRIP", tc.ToArray()));
 
         var tr = new List<(string, string, Brush?)> { ("Sim clock", ClockText(s.GameTimeMin), null), ("Real time", now.ToString("HH:mm", CultureInfo.InvariantCulture), null) };
@@ -242,15 +242,15 @@ public sealed partial class MainWindow
         Txt("ROUTE PROGRESS", 372, 22, 8.5, titleB, FontWeights.SemiBold);
         Box(372, 29, 268, 20, Ui.Frozen(Color.FromRgb(34, 44, 58)), null, 4);
         if (progress > 0.005f) Box(372, 29, 268 * progress, 20, cyan, null, 4);
-        Txt(Fmt(remGameKm) + " km left", 372, 71, 12, white, FontWeights.Bold);
-        if (planned > 0) Txt($"of {Fmt(planned)} km  ·  {progress * 100f:0}%", 640, 71, 10, subB, FontWeights.Normal, 160, right: true);
+        Txt(Units.LongText(remGameKm) + " left", 372, 71, 12, white, FontWeights.Bold);
+        if (planned > 0) Txt($"of {Units.LongText(planned)}  ·  {progress * 100f:0}%", 640, 71, 10, subB, FontWeights.Normal, 160, right: true);
 
         Txt("TO", 668, 45, 8, labelB, FontWeights.Normal);
         Txt(j?.DestCity is { Length: > 0 } tc ? tc : (hasDest ? destName : "-"), 686, 45, 24, white, FontWeights.Bold, 165);
         Txt(j?.DestCompany ?? "", 686, 65, 11, labelB, FontWeights.Normal, 165);
 
         Txt("LOCAL", 860, 31, 8, labelB, FontWeights.Normal);
-        Txt("ETS2", 860, 61, 8, labelB, FontWeights.Normal);
+        Txt(Games.Current.Short, 860, 61, 8, labelB, FontWeights.Normal);
         Txt(DateTime.Now.ToString("HH:mm:ss", inv), 988, 33, 15, white, FontWeights.Bold, 100, right: true);
         Txt(ClockText(gameNow).ToUpperInvariant(), 988, 63, 15, simClock, FontWeights.Bold, 100, right: true);
 
@@ -274,30 +274,30 @@ public sealed partial class MainWindow
         }
         float cargoDmg = dt.CargoDamage;
         DashCard(0, "CARGO", j?.Cargo is { Length: > 0 } cg ? cg : "-", white, "", "", green,
-            ("Mass", j != null && j.MassKg > 0 ? Fmt(j.MassKg / 1000f, "0.0") + " t" : "-", null),
+            ("Mass", j != null && j.MassKg > 0 ? Units.Mass(j.MassKg) : "-", null),
             ("Units", (j?.Units ?? 0).ToString(inv), null),
             ("Cargo damage", $"{cargoDmg:0}%", cargoDmg < 0.5f ? green : DamageBrush(cargoDmg)),
             ("Trailer", dt.TrailerName.Length > 0 ? dt.TrailerName : "-", null));
-        DashCard(1, "ARRIVAL (ETS2 CLOCK)", arrBig, white, arrSub, "", green,
+        DashCard(1, $"ARRIVAL ({Games.Current.Short} CLOCK)", arrBig, white, arrSub, "", green,
             ("ETA (your clock)", etaYours, null),
             ("Time left (game)", simMin >= 0f ? DurShort(simMin) : "-", null),
             ("Time left (real)", realMin >= 0f ? DurShort(realMin) : "-", null),
-            ("Distance left", Fmt(remGameKm) + " km", null));
+            ("Distance left", Units.LongText(remGameKm), null));
         DashCard(2, "TIME REMAINING TO DEADLINE", dueMin >= 0f ? DurShort(dueMin) : "-", white, "",
             dueMin < 0f ? "" : late ? "LATE" : "ON TIME", late ? Red : green,
             ("Deadline", dueMin >= 0f && gameNow >= 0f ? ClockText(gameNow + dueMin).ToUpperInvariant() : "-", null),
             ("ETA", arrAbs >= 0f ? ClockText(arrAbs).ToUpperInvariant() : "-", null),
             ("Margin", spare is float sp ? (sp >= 0f ? "+" : "-") + DurShort(sp) : "-", spare < 0f ? Red : green),
-            ("Avg speed needed", avgNeeded >= 0f ? Fmt(avgNeeded) + " km/h" : "-", null));
+            ("Avg speed needed", avgNeeded >= 0f ? Units.SpeedText(avgNeeded) : "-", null));
         DashCard(3, "FUEL FOR THIS TRIP", fr >= 0f ? $"{fr * 100f:0}%" : "-", fr < 0.12f ? Red : fr < 0.25f ? Amber : green,
-            $"{dt.FuelL:0} / {dt.FuelCapL:0} L", remGameKm <= 0f ? "" : atArrival < 0f ? "REFUEL NEEDED" : "ENOUGH FUEL", atArrival < 0f ? Red : green,
-            ("Range", Fmt(dt.RangeKm) + " km", null),
-            ("Consumption", Fmt(dt.ConsumptionLPerKm * 100f, "0.0") + " L/100km", null),
-            ("Needed for trip", Fmt(needL) + " L", null),
-            ("Fuel at arrival", Fmt(atArrival) + " L", atArrival < 0f ? Red : null));
-        DashCard(4, "JOB & INCOME", j != null && j.Income > 0 ? "€ " + Fmt(j.Income) : "-", white, "", "", green,
-            ("Planned distance", planned > 0 ? Fmt(planned) + " km" : "-", null),
-            ("Income rate", j != null && planned > 0 && j.Income > 0 ? "€ " + Fmt((float)j.Income / planned, "0.00") + "/km" : "-", null),
+            $"{Fmt(Units.Fuel(dt.FuelL))} / {Units.FuelText(dt.FuelCapL)}", remGameKm <= 0f ? "" : atArrival < 0f ? "REFUEL NEEDED" : "ENOUGH FUEL", atArrival < 0f ? Red : green,
+            ("Range", Units.LongText(dt.RangeKm), null),
+            ("Consumption", Units.Consumption(dt.ConsumptionLPerKm), null),
+            ("Needed for trip", Units.FuelText(needL), null),
+            ("Fuel at arrival", Units.FuelText(atArrival), atArrival < 0f ? Red : null));
+        DashCard(4, "JOB & INCOME", j != null && j.Income > 0 ? Units.Money + " " + Fmt(j.Income) : "-", white, "", "", green,
+            ("Planned distance", planned > 0 ? Units.LongText(planned) : "-", null),
+            ("Income rate", j != null && planned > 0 && j.Income > 0 ? Units.Money + " " + Fmt((float)j.Income / Units.Long(planned), "0.00") + "/" + Units.DistUnit : "-", null),
             ("Job market", market, null),
             ("Special job", market.Contains("SPECIAL") ? "YES" : "NO", null));
 
@@ -357,7 +357,7 @@ public sealed partial class MainWindow
     void ShowElevation()
     {
         int n = elev.Alt.Count;
-        string summary = n < 2 ? "No data yet" : $"Now {Math.Round(truck?.Y ?? 0)} m  ·  climbed {elev.Ascent():0} m  ·  descended {elev.Descent():0} m  ·  range {elev.Alt.Min():0} to {elev.Alt.Max():0} m";
+        string summary = n < 2 ? "No data yet" : $"Now {Units.AltText(truck?.Y ?? 0)}  ·  climbed {Units.AltText(elev.Ascent())}  ·  descended {Units.AltText(elev.Descent())}  ·  range {Units.Alt(elev.Alt.Min()):0} to {Units.AltText(elev.Alt.Max())}";
         var sp = new StackPanel { Margin = new Thickness(18, 6, 18, 0) };
         sp.Children.Add(new TextBlock { Text = summary, FontSize = 14, Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap });
         sp.Children.Add(new ElevationChart(elev, distScale));
@@ -379,7 +379,7 @@ public sealed partial class MainWindow
         }
         var ferries = new CheckBox { Content = new TextBlock { Text = "Avoid ferries and car trains (routes never cross by ferry; some places may become unreachable)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.AvoidFerries, Foreground = Brushes.White, Margin = new Thickness(0, 8, 0, 4) };
         sp.Children.Add(ferries);
-        var clear = Ui.Button($"Clear avoided roads ({cfg.Avoid.Count})", double.NaN, 32); clear.Padding = new Thickness(12, 0, 12, 0); clear.HorizontalAlignment = HorizontalAlignment.Left;
+        var clear = Ui.Button($"Clear avoided roads ({cfg.GameAvoid.Count})", double.NaN, 32); clear.Padding = new Thickness(12, 0, 12, 0); clear.HorizontalAlignment = HorizontalAlignment.Left;
         clear.Click += (_, _) => { ClearAvoid(); clear.Content = "Clear avoided roads (0)"; };
         sp.Children.Add(clear);
 
@@ -418,6 +418,7 @@ public sealed partial class MainWindow
         var voiceOn = new CheckBox { Content = "Voice guidance", IsChecked = voice.Enabled, Foreground = Brushes.White };
         sp.Children.Add(voiceOn);
         var voices = voice.Voices().ToList();
+        if (cfg.VoiceName.Length > 0 && !voices.Contains(cfg.VoiceName)) voices.Insert(0, cfg.VoiceName);   // e.g. a Voicebox voice while Voicebox is closed
         var combo = new ComboBox { Margin = new Thickness(0, 6, 0, 0), MinWidth = 260, HorizontalAlignment = HorizontalAlignment.Left };
         combo.Items.Add("(default voice)");
         foreach (var v in voices) combo.Items.Add(v);
@@ -483,7 +484,7 @@ public sealed partial class MainWindow
         var realD = new CheckBox { Content = new TextBlock { Text = "Real distances (turns, lane guidance, route length). Off = Sim distances like the game shows", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.RealDistances, Foreground = Brushes.White };
         sp.Children.Add(realD);
         sp.Children.Add(new TextBlock { Text = "Sim scale (the game shows map metres x19)", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0) });
-        var scale = Box(cfg.DistScale.ToString(CultureInfo.InvariantCulture)); scale.Width = 120; scale.HorizontalAlignment = HorizontalAlignment.Left; sp.Children.Add(scale);
+        var scale = Box(cfg.GameDistScale.ToString(CultureInfo.InvariantCulture)); scale.Width = 120; scale.HorizontalAlignment = HorizontalAlignment.Left; sp.Children.Add(scale);
 
         void Save(bool reloadMap)
         {
@@ -506,9 +507,9 @@ public sealed partial class MainWindow
             cfg.TelemetryHost = tele.Text.Trim();
             cfg.ServerEnabled = srv.IsChecked == true;
             if (int.TryParse(port.Text, out var pt) && pt > 1023 && pt < 65536) cfg.ServerPort = pt;
-            if (float.TryParse(scale.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var sc) && sc > 0) cfg.DistScale = sc;
+            if (float.TryParse(scale.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var sc) && sc > 0) cfg.GameDistScale = sc;
             cfg.RealDistances = realD.IsChecked == true;
-            distScale = cfg.RealDistances ? 1f : cfg.DistScale; if (nav != null) nav.DistScale = distScale;
+            distScale = cfg.RealDistances ? 1f : cfg.GameDistScale; if (nav != null) nav.DistScale = distScale;
             cfg.Save();
             if (vcChanged) ApplyVoiceControl(announce: true);
             if (reloadMap) { try { File.Delete(MapBuilder.MapService.MetaPath); } catch { /* ignore */ } _ = LoadMapAsync(); }

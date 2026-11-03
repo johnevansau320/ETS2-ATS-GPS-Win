@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 
 namespace Ets2Gps;
@@ -20,6 +20,7 @@ public static class GameGps
         var profile = GameControls.ProfileDir();
         if (profile == null) return null;
         var saves = Path.Combine(profile, "save");
+        if (!Directory.Exists(saves)) saves = CloudSaves(Path.GetFileName(profile)) ?? saves;
         if (!Directory.Exists(saves)) return null;
         (string, DateTime)? best = null;
         foreach (var dir in Directory.EnumerateDirectories(saves))
@@ -30,6 +31,27 @@ public static class GameGps
             if (best == null || t > best.Value.Item2) best = (f, t);
         }
         return best;
+    }
+
+    /// <summary>
+    /// A Steam Cloud profile (steam_profiles) keeps only its settings in Documents: Steam stores its saves under
+    /// Steam\userdata\&lt;account&gt;\&lt;app id&gt;\remote\profiles\&lt;profile&gt;\save. The most recently written one of those, or null.
+    /// </summary>
+    static string? CloudSaves(string profileHex)
+    {
+        try
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+            if (k?.GetValue("SteamPath") is not string root) return null;
+            var userdata = Path.Combine(root, "userdata");
+            if (!Directory.Exists(userdata)) return null;
+            return Directory.EnumerateDirectories(userdata)
+                .Select(u => Path.Combine(u, Games.Current.SteamApp, "remote", "profiles", profileHex, "save"))
+                .Where(Directory.Exists)
+                .OrderByDescending(Directory.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+        }
+        catch { return null; }
     }
 
     /// <summary>Decodes a save and picks out the GPS waypoints ahead and the job state. Throws when the save cannot be read.</summary>

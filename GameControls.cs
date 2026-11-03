@@ -70,7 +70,7 @@ public static class GameControls
             var f = FirstKey(faster); var s = FirstKey(slower);
             string src = "profile " + ProfileName(file);
             if (f == null || s == null)
-                return new Result(f, s, src, "Euro Truck Simulator 2 has no keyboard key assigned to \"cruise control faster / slower\" in this profile (joystick buttons cannot be pressed from here). " +
+                return new Result(f, s, src, $"{Games.Current.Name} has no keyboard key assigned to \"cruise control faster / slower\" in this profile (joystick buttons cannot be pressed from here). " +
                     "Assign keys in the game's Options > Keyboard (for example Numpad + and Numpad -) to use the automatic speed limit.");
             return new Result(f, s, src, null);
         }
@@ -135,8 +135,8 @@ public static class GameControls
         if (!string.IsNullOrEmpty(over)) return File.Exists(over) ? over : null;
         var roots = new List<string>();
         string docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        foreach (var r in new[] { Path.Combine(docs, "Euro Truck Simulator 2"),
-                                  Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents", "Euro Truck Simulator 2") })
+        foreach (var r in new[] { Path.Combine(docs, Games.Current.Folder),
+                                  Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents", Games.Current.Folder) })
             if (Directory.Exists(r) && !roots.Contains(r, StringComparer.OrdinalIgnoreCase)) roots.Add(r);
         string? best = null; DateTime bestTime = DateTime.MinValue;
         foreach (var root in roots)

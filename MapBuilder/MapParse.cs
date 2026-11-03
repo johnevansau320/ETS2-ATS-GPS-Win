@@ -98,7 +98,9 @@ public static class Sii
 }
 
 public sealed record City(string Id, string Name, string Country, string Loc);
-public sealed record RoadLook(int Left, int Right, double Offset, int DriveLeft, int DriveRight, string Side, int Grade);
+/// <summary>Track: a gravel or dirt road, driveway or farm road without AI traffic (only "no_vehicles" / "side_road" lanes). Trucks can drive it and the
+/// game's GPS routes over it, so it is kept as a slow two-way road.</summary>
+public sealed record RoadLook(int Left, int Right, double Offset, int DriveLeft, int DriveRight, string Side, int Grade, bool Track = false);
 
 public sealed class Defs
 {
@@ -123,6 +125,7 @@ public sealed class Defs
     List<string> Files(string folder, string prefix) => fs.ListDir(folder).Files.Where(f => f.StartsWith(prefix, StringComparison.Ordinal)).ToList();
 
     static bool IsDriveLane(string x) => x.StartsWith("traffic_lane.road", StringComparison.Ordinal) || x.StartsWith("traffic_lane.slow_road", StringComparison.Ordinal);
+    static bool IsTrackLane(string x) => x.StartsWith("traffic_lane.no_vehicles", StringComparison.Ordinal) || x.StartsWith("traffic_lane.side_road", StringComparison.Ordinal);
 
     static double ParseDouble(string s, double def) =>
         double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : def;
@@ -160,7 +163,8 @@ public sealed class Defs
                 else if (p.Has("template_left") && !p.Has("template_right")) side = "L";
                 var lanes = ll.Concat(rr).Where(IsDriveLane).ToList();
                 int grade = lanes.Any(x => x.Contains(".motorway")) ? 3 : lanes.Any(x => x.Contains(".expressway")) ? 2 : lanes.Count >= 4 ? 1 : 0;
-                RoadLooks[tok] = new RoadLook(ll.Count, rr.Count, off, ll.Count(IsDriveLane), rr.Count(IsDriveLane), side, grade);
+                if (lanes.Count == 0 && ll.Concat(rr).Any(IsTrackLane)) RoadLooks[tok] = new RoadLook(ll.Count, rr.Count, off, 1, 1, "", 0, true);
+                else RoadLooks[tok] = new RoadLook(ll.Count, rr.Count, off, ll.Count(IsDriveLane), rr.Count(IsDriveLane), side, grade);
             }
         foreach (var f in Files("def/world", "prefab"))
             foreach (var (cls, name, p) in Sii.Blocks(Sii.Decode(fs.Read("def/world/" + f) ?? Array.Empty<byte>())))
@@ -241,6 +245,9 @@ public sealed class Prefab
     public List<double> NodeY = new();
     public List<(double X, double Z, uint Type)> Spawns = new();
     public List<(uint Id, ulong Action, double X, double Z)> Triggers = new();
+    /// <summary>The filled shapes the game draws for this prefab on its map (yards, lots, buildings, grass), in the prefab's own frame,
+    /// bottom first. Color: the map area classes (0 road grey, 1 light, 2 dark, 3 green).</summary>
+    public List<(byte Color, List<(double X, double Z)> Pts)> Polys = new();
     public byte[] Raw = Array.Empty<byte>();
 }
 
@@ -266,7 +273,6 @@ public static class PrefabParser
         int spawnOff = Bin.I32(d, o);
         o += 0x10;
         int mapOff = Bin.I32(d, o), trigOff = Bin.I32(d, o + 4);
-        _ = mapCount; _ = mapOff;
         pf.NavCount = navCount; pf.NavOff = navOff;
         for (int i = 0; i < nodeCount; i++)
         {
@@ -289,8 +295,47 @@ public static class PrefabParser
             if (b + 0x30 > d.Length) break;
             pf.Triggers.Add((Bin.U32(d, b), Bin.U64(d, b + 4), Bin.F32(d, b + 0x1C), Bin.F32(d, b + 0x24)));
         }
+        ParsePolys(pf, d, mapOff, mapCount);
         pf.Raw = d;
         return pf;
+    }
+
+    /// <summary>
+    /// Map points (0x30 bytes each): byte 1 low nibble 13 marks a polygon corner, byte 2 its colour flags (2 light, 4 dark, 8 green, else road
+    /// grey; 1 = drawn over the others), the position at 0x08 / 0x10 and up to six neighbours at 0x14 with their count at 0x2C. Each polygon is
+    /// a ring of corners linked to their neighbours.
+    /// </summary>
+    static void ParsePolys(Prefab pf, byte[] d, int off, int count)
+    {
+        if (count <= 0 || off <= 0 || off + count * 0x30 > d.Length) return;
+        var used = new bool[count];
+        var polys = new List<(int Z, int Seq, byte Color, List<(double X, double Z)> Pts)>();
+        bool Corner(int i) => (d[off + i * 0x30 + 1] & 0x0F) == 13;
+        for (int s = 0; s < count; s++)
+        {
+            if (used[s] || !Corner(s)) continue;
+            var ring = new List<(double X, double Z)>();
+            int prev = -1, cur = s;
+            while (cur >= 0 && !used[cur] && ring.Count < 200)
+            {
+                used[cur] = true;
+                int b = off + cur * 0x30;
+                ring.Add((Bin.F32(d, b + 0x08), Bin.F32(d, b + 0x10)));
+                int nn = Math.Clamp(Bin.I32(d, b + 0x2C), 0, 6), next = -1;
+                for (int k = 0; k < nn; k++)
+                {
+                    int q = Bin.I32(d, b + 0x14 + 4 * k);
+                    if (q >= 0 && q < count && q != prev && !used[q] && Corner(q)) { next = q; break; }
+                }
+                prev = cur; cur = next;
+            }
+            if (ring.Count < 3) continue;
+            byte f = d[off + s * 0x30 + 2];
+            byte color = (f & 2) != 0 ? (byte)1 : (f & 4) != 0 ? (byte)2 : (f & 8) != 0 ? (byte)3 : (byte)0;
+            int z = (f & 1) != 0 ? 4 : color == 1 ? 0 : color == 0 ? 1 : color == 2 ? 2 : 3;   // the light yard at the bottom, then grey, dark, green
+            polys.Add((z, polys.Count, color, ring));
+        }
+        foreach (var p in polys.OrderBy(p => p.Z).ThenBy(p => p.Seq)) pf.Polys.Add((p.Color, p.Pts));
     }
 }
 

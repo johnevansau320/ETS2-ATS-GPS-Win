@@ -12,7 +12,7 @@ namespace Ets2Gps.MapBuilder;
 public static class BuildMap
 {
     /// <summary>Changes whenever the builder's output could change (it triggers an automatic rebuild).</summary>
-    public const int FormatVersion = 20;
+    public const int FormatVersion = 22;
     /// <summary>The binary layout the app reads.</summary>
     public const int FileVersion = 10;
 
@@ -24,8 +24,28 @@ public static class BuildMap
     static readonly string[] NotRoundaboutWords = { "gas", "plaza", "parking", "depot", "service", "station", "tshape", "truckstop" };
 
     /// <summary>Overlay token such as "al_sh2", "at_e45", "b_a1" -> the text of the road-number shield ("SH 2", "E45", "A1"), or null for other overlays.</summary>
+    // ATS states (map overlay tokens start with their postal code: ca_r1, mt24, txl338)
+    static readonly HashSet<string> UsStates = new() { "az", "ar", "ca", "co", "id", "il", "ia", "ks", "la", "mo", "mt", "ne", "nv", "nm", "ok", "or", "sd", "tx", "ut", "wa", "wy" };
+
+    /// <summary>ATS road numbers: is10 -> I-10, us101 -> US 101, ca_r1 -> CA 1, txl338 -> LOOP 338, bus40 -> BUS 40.</summary>
+    static string? UsRoadLabelText(string tok)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(tok, "^is([0-9]{1,3})([a-z]?)$");
+        if (m.Success) return "I-" + m.Groups[1].Value + m.Groups[2].Value.ToUpperInvariant();
+        m = System.Text.RegularExpressions.Regex.Match(tok, "^us([0-9]{1,3})([a-z]?)$");
+        if (m.Success) return "US " + m.Groups[1].Value + m.Groups[2].Value.ToUpperInvariant();
+        m = System.Text.RegularExpressions.Regex.Match(tok, "^bus([0-9]{1,3})$");
+        if (m.Success) return "BUS " + m.Groups[1].Value;
+        m = System.Text.RegularExpressions.Regex.Match(tok, "^txl([0-9]{1,4})$");
+        if (m.Success) return "LOOP " + m.Groups[1].Value;
+        m = System.Text.RegularExpressions.Regex.Match(tok, "^([a-z]{2})_?r?([0-9]{1,4})([a-z]?)$");
+        if (m.Success && UsStates.Contains(m.Groups[1].Value)) return m.Groups[1].Value.ToUpperInvariant() + " " + m.Groups[2].Value + m.Groups[3].Value.ToUpperInvariant();
+        return null;
+    }
+
     static string? RoadLabelText(string tok)
     {
+        if (Games.Current == Games.Ats) return UsRoadLabelText(tok);
         var m = System.Text.RegularExpressions.Regex.Match(tok, "^[a-z]{1,3}_([a-z]{0,3})([0-9]{1,4})([a-z]?)$");
         if (!m.Success || tok.StartsWith("border_")) return null;
         string letters = m.Groups[1].Value.ToUpperInvariant();
@@ -491,7 +511,7 @@ public static class BuildMap
             int wq = Math.Min(255, (int)(Math.Max(width, 4.5) * 4));
             int dt = dl + dr;
             int cls = dt >= 6 ? 2 : dt >= 4 ? 1 : 0;
-            int speed = cls == 2 ? 110 : cls == 1 ? 90 : 50;
+            int speed = rl.Track ? 30 : cls == 2 ? 110 : cls == 1 ? 90 : 50;
             bool fwd = dr > 0, bwd = dl > 0;
             if (fwd != bwd && rl.Side.Length > 0) { fwd = rl.Side == "R"; bwd = rl.Side == "L"; }
             int hbit = hid ? 16 : 0;
@@ -523,6 +543,7 @@ public static class BuildMap
         }
         int closedBorders = 0;
         // company yards: the company point (where the game's GPS route ends, at the entrance) and the drop-off spots inside
+        var prefabAreas = new List<(uint Color, List<(float X, float Z)> Pts)>();
         var yards = new List<(double GX, double GZ, (double X, double Z)? Easy, (double X, double Z)? Medium, (double X, double Z)? Hard)>();
         foreach (var (uid, ptok, unodes, origin, secret, _, hid) in prefabs)
         {
@@ -548,6 +569,9 @@ public static class BuildMap
                 var seenTrig = new HashSet<uint>();
                 foreach (var (tid, act, tx, tz) in pf.Triggers)
                     if (act == (ulong)HudParking && seenTrig.Add(tid)) { var q = Tf((tx, tz)); pois.Add((3, q.X, q.Z)); }
+                // the prefab's own map shapes: company compounds, lots, buildings, grass
+                foreach (var (color, ppts) in pf.Polys)
+                    prefabAreas.Add((color, ppts.Select(p => { var q = Tf(p); return (F32(q.X), F32(q.Z)); }).ToList()));
             }
             // routing: nav curve chains between prefab nodes
             if (pf.NavCount == 0) continue;
@@ -768,13 +792,15 @@ public static class BuildMap
             foreach (var u in anodes) if (nodes.TryGetValue(u, out var nd)) pts.Add((F32(nd.X), F32(nd.Z)));
             if (pts.Count >= 3 && color <= 3) areas.Add((color, pts));
         }
+        int itemAreas = areas.Count;
+        areas.AddRange(prefabAreas);   // drawn over the map areas, like in the game
         w.Write((uint)areas.Count);
         foreach (var (color, pts) in areas)
         {
             w.Write((byte)color); w.Write((ushort)pts.Count);
             foreach (var (x, z) in pts) { w.Write(x); w.Write(z); }
         }
-        log($"{usedCo.Count} company names, {labels.Count} road numbers, {areas.Count} map areas");
+        log($"{usedCo.Count} company names, {labels.Count} road numbers, {itemAreas} map areas, {prefabAreas.Count} prefab shapes");
         // border crossings (checkpoint symbol, or the flag of the country being entered) and each city's country (for its flag)
         var borders = new List<(byte Kind, string Cc, double X, double Z)>();
         var borderSeen = new HashSet<(string, long, long)>();

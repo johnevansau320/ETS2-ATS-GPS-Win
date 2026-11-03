@@ -15,8 +15,18 @@ public sealed partial class MainWindow
     {
         if (!cfg.VoiceControl) { vctl?.Stop(); return; }
         if (vctl == null) { vctl = new VoiceControl(() => voice.Busy); vctl.Command += OnVoiceCommand; }
-        if (vctl.Start(cfg.VoiceWake)) { if (announce) Toast($"Voice control on - say \"{vctl.Wake}\", then a command, for example \"{vctl.Wake}, help\""); }
-        else Toast(vctl.Problem ?? "Voice control could not start");
+        var v = vctl; string wake = cfg.VoiceWake; bool classic = cfg.VoiceRecognizer != "modern";
+        // starting the recognizer takes a few seconds (it compiles the command list): off the UI thread
+        Task.Run(() =>
+        {
+            bool ok = v.Start(wake, classic);
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!cfg.VoiceControl) { v.Stop(); return; }   // switched off meanwhile
+                if (ok) { if (announce) Toast($"Voice control on - say \"{v.Wake}\", then a command, for example \"{v.Wake}, help\""); }
+                else Toast(v.Problem ?? "Voice control could not start");
+            }));
+        });
     }
 
     void OnVoiceCommand(string key, string heard, float confidence) => Dispatcher.BeginInvoke(new Action(() => RunVoiceCommand(key, heard)));
@@ -24,7 +34,8 @@ public sealed partial class MainWindow
     static string SpokenPlace(int type) => type switch { Poi.Parking => "rest area", Poi.Fuel => "fuel station", Poi.Service => "service centre", Poi.Weigh => "weigh station",
         Poi.Garage => "garage", Poi.Dealer => "truck dealer", Poi.Ferry => "ferry terminal", _ => Poi.Label(type).ToLowerInvariant() };
 
-    static string Words(string text) => text.Replace(" km", " kilometres").Replace(" m ", " metres ").Replace(" m,", " metres,").Replace(" m.", " metres.");
+    static string Words(string text) => text.Replace(" km", " kilometres").Replace(" m ", " metres ").Replace(" m,", " metres,").Replace(" m.", " metres.")
+        .Replace(" mi", " miles").Replace(" ft", " feet");
 
     static string SpokenDuration(float minutes)
     {
@@ -101,12 +112,12 @@ public sealed partial class MainWindow
                 Reply(lastNextText.Length > 0 ? Words(lastNextText) : "There is no instruction yet.");
                 break;
             case "limit":
-                Reply(inGame && t!.SpeedLimitKmh > 0 ? $"The speed limit is {t.SpeedLimitKmh}." : "I have no speed limit for this road.");
+                Reply(inGame && t!.SpeedLimitKmh > 0 ? $"The speed limit is {Math.Round(Units.Speed(t.SpeedLimitKmh))}" + (Units.Imperial ? " miles per hour." : ".") : "I have no speed limit for this road.");
                 break;
             case "fuel":
                 if (!inGame || t!.FuelFraction < 0) { Reply("I have no fuel reading."); return; }
                 { int pct = (int)MathF.Round(t.FuelFraction * 100f); float range = t.Detail?.RangeKm ?? 0f;
-                  Reply($"Fuel is at {pct} percent" + (range > 1f ? $", range about {(int)MathF.Round(range)} kilometres." : ".")); }
+                  Reply($"Fuel is at {pct} percent" + (range > 1f ? $", range about {(int)MathF.Round(Units.Long(range))} " + (Units.Imperial ? "miles." : "kilometres.") : ".")); }
                 break;
             case "lanes:on": case "lanes:off":
                 { bool on = key.EndsWith("on"); cfg.ShowLanes = on; cfg.Save(); if (!on) SetLaneUi(null); Reply("Lane guidance " + (on ? "on." : "off.")); }
