@@ -12,7 +12,7 @@ namespace Ets2Gps.MapBuilder;
 public static class BuildMap
 {
     /// <summary>Changes whenever the builder's output could change (it triggers an automatic rebuild).</summary>
-    public const int FormatVersion = 22;
+    public const int FormatVersion = 24;
     /// <summary>The binary layout the app reads.</summary>
     public const int FileVersion = 10;
 
@@ -396,6 +396,7 @@ public static class BuildMap
         public List<(int Type, double X, double Z)> Overlays = new();
         public List<(ulong Tok, double X, double Z)> RoadLabels = new();
         public List<(List<ulong> Nodes, uint Color)> Areas = new();
+        public List<List<ulong>> ParkingTriggers = new();
     }
 
     static Collected CollectSectors(FileSystem fs, Defs defs, Action<string> log, Action<double>? progress)
@@ -439,6 +440,7 @@ public static class BuildMap
                 col.Overlays.AddRange(s.Overlays);
                 col.RoadLabels.AddRange(s.RoadLabels);
                 col.Areas.AddRange(s.Areas);
+                col.ParkingTriggers.AddRange(s.ParkingTriggers);
             }
         }
         if (skipped > 0) log($"  ! {skipped} sectors use an unsupported (very old) format and were skipped");
@@ -739,16 +741,28 @@ public static class BuildMap
         log($"{comp.Count} company locations");
         if (dropsPath != null) WriteDrops(dropsPath, comp.Values, yards, log);
         pois.AddRange(col.Overlays);
+        // rest areas marked by triggers placed in the map (most of them; the rest come with their junction piece)
+        int parkTrig = 0;
+        foreach (var tn in col.ParkingTriggers)
+        {
+            double sx = 0, sz = 0; int k = 0;
+            foreach (var u in tn) if (nodes.TryGetValue(u, out var nd)) { sx += nd.X; sz += nd.Z; k++; }
+            if (k == 0) continue;
+            pois.Add((3, sx / k, sz / k)); parkTrig++;
+        }
+        log($"{parkTrig} rest-area triggers");
         foreach (var (_, _, _, train, fx, fz) in col.Ferries) pois.Add((train ? 10 : 9, fx, fz));   // ferry and car-train terminals
         var grid = new Dictionary<(int, long, long), List<(double X, double Z)>>();
         var uniq = new List<(int T, double X, double Z)>();
         foreach (var (t, x, z) in pois)
         {
-            long gx = (long)Math.Floor(x / 30), gz = (long)Math.Floor(z / 30);
+            // one icon per place: a rest area often has several parking triggers side by side
+            double r = t == 3 ? 120 : 30;
+            long gx = (long)Math.Floor(x / r), gz = (long)Math.Floor(z / r);
             bool dup = false;
             for (int ddx = -1; ddx <= 1 && !dup; ddx++)
                 for (int ddz = -1; ddz <= 1 && !dup; ddz++)
-                    if (grid.TryGetValue((t, gx + ddx, gz + ddz), out var l) && l.Any(u => Math.Abs(x - u.X) < 30 && Math.Abs(z - u.Z) < 30)) dup = true;
+                    if (grid.TryGetValue((t, gx + ddx, gz + ddz), out var l) && l.Any(u => Math.Abs(x - u.X) < r && Math.Abs(z - u.Z) < r)) dup = true;
             if (dup) continue;
             if (!grid.TryGetValue((t, gx, gz), out var cell)) grid[(t, gx, gz)] = cell = new();
             cell.Add((x, z)); uniq.Add((t, x, z));

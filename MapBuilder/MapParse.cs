@@ -350,6 +350,8 @@ public sealed class Sector
     /// <summary>Road-number overlays (token such as al_sh2) and the map areas (lots, yards, green patches) with their colour class.</summary>
     public List<(ulong Tok, double X, double Z)> RoadLabels = new();
     public List<(List<ulong> Nodes, uint Color)> Areas = new();
+    /// <summary>Rest-area triggers placed in the map (action hud_parking): their corner nodes.</summary>
+    public List<List<ulong>> ParkingTriggers = new();
     public Dictionary<ulong, (double X, double Z, double Rot)> Nodes = new();
     public Dictionary<ulong, double> NodeY = new();
     public bool Ok;
@@ -489,7 +491,7 @@ public static class SectorParser
                     e = f + 0x29;
                     break;
                 case TTrigger:
-                    e = Trigger(d, f);
+                    e = Trigger(d, f, sec);
                     break;
                 case TRoadside:
                     e = ver >= 906 ? Roadside(d, f) : Roadside875(d, f);
@@ -595,16 +597,22 @@ public static class SectorParser
         return sec;
     }
 
-    static int Trigger(byte[] d, int f)
+    static readonly ulong HudParking = (ulong)Sii.StrToToken("hud_parking");
+
+    /// <summary>Skips a trigger item; a rest-area trigger (action hud_parking) is kept with its corner nodes.</summary>
+    static int Trigger(byte[] d, int f, Sector sec)
     {
         int tc = Bin.I32(d, f + 5);
         int p = f + 5 + 4 + 8 * tc;
         int nc = Bin.I32(d, p);
+        int nodesAt = p + 4;
         p += 4 + 8 * nc;
         int ac = Bin.I32(d, p);
         p += 4;
+        bool parking = false;
         for (int i = 0; i < ac; i++)
         {
+            if (Bin.U64(d, p) == HudParking) parking = true;
             p += 8;
             int ho = Bin.I32(d, p);
             p += 4;
@@ -617,6 +625,12 @@ public static class SectorParser
             p += 4 + tt * 8 + 8;
         }
         if (nc == 1) p += 4;
+        if (parking && nc > 0 && nc < 64)
+        {
+            var ns = new List<ulong>(nc);
+            for (int k = 0; k < nc; k++) ns.Add(Bin.U64(d, nodesAt + 8 * k));
+            sec.ParkingTriggers.Add(ns);
+        }
         return p;
     }
 

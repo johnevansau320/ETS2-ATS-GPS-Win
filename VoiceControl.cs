@@ -59,7 +59,7 @@ public sealed class VoiceControl : IDisposable
         ("job", new[] { "take the job", "take this job", "start the job", "navigate to the job", "route to the job", "go to the job", "take me to the delivery",
             "accept the job", "yes navigate", "navigate", "yes please" }),
         ("gamegps", new[] { "follow the game route", "follow the game navigation", "go to the game destination", "use the game destination", "use the game route" }),
-        ("dismiss", new[] { "not now", "not right now", "not this time", "no not now", "maybe later", "no thanks", "no thank you", "no", "dismiss", "decline",
+        ("dismiss", new[] { "not now", "not right now", "not this time", "no not now", "maybe later", "no thanks", "no thank you", "dismiss", "decline",
             "decline the job", "ignore the job", "skip the job", "don't navigate", "cancel", "close", "close the dialog" }),
         ("jobinfo", new[] { "show job info", "show the job info", "show job information", "open job info", "open the job info", "job info" }),
         ("map", new[] { "show the map", "back to the map", "return to the map", "show navigation", "back to navigation", "show the navigation screen", "close job info" }),
@@ -76,6 +76,8 @@ public sealed class VoiceControl : IDisposable
         ("cruise:off", new[] { "turn cruise assist off", "cruise assist off", "automatic cruise off" }),
         ("voice:on", new[] { "turn voice guidance on", "voice guidance on", "unmute voice guidance" }),
         ("voice:off", new[] { "turn voice guidance off", "voice guidance off", "mute voice guidance" }),
+        ("window:min", new[] { "minimize the window", "minimize the GPS", "minimize", "hide the window", "hide the GPS" }),
+        ("window:restore", new[] { "restore the window", "restore the GPS", "restore", "show the window", "show the GPS", "bring the window back", "bring back the GPS" }),
         ("help", new[] { "help", "what can I say", "voice commands", "list the voice commands" }),
     };
 

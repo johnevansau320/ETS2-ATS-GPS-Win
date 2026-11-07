@@ -45,6 +45,17 @@ public sealed partial class MainWindow
         return $"{m} minutes";
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
+    const int SW_SHOWNOACTIVATE = 4;
+
+    /// <summary>Brings the minimized window back at its last size and place without activating it, so the game keeps the keyboard.</summary>
+    void RestoreWindow()
+    {
+        if (WindowState != WindowState.Minimized) return;
+        ShowWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle, SW_SHOWNOACTIVATE);
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;   // the call did not take: restore the usual way
+    }
+
     void RunVoiceCommand(string key, string heard)
     {
         long now = clock.ElapsedMilliseconds;
@@ -89,6 +100,7 @@ public sealed partial class MainWindow
                 break;
             case "map":
                 if (tripOpen) ToggleTrip();
+                if (WindowState == WindowState.Minimized) RestoreWindow();
                 Reply("Map.");
                 break;
             case "cancel":
@@ -131,9 +143,17 @@ public sealed partial class MainWindow
             case "voice:off":
                 Reply("Voice guidance off."); voice.Enabled = false; cfg.VoiceOn = false; cfg.Save(); UpdateVoiceButton();
                 break;
+            case "window:min":
+                WindowState = WindowState.Minimized;
+                Reply("Minimized.");
+                break;
+            case "window:restore":
+                RestoreWindow();
+                Reply("Restored.");
+                break;
             case "help":
-                Reply($"Say {vctl?.Wake ?? "GPS"}, then: nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job, or not now when the new job question is on screen. Follow the game route, to go where the game's GPS is set. Show job info, or show the map, or back to navigation. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off.");
-                Toast("Voice commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer · take the job / not now · follow the game route · show job info · show the map · cancel the route · back to my route · how far · when do I arrive · what is next · speed limit · fuel level · lane guidance, cruise assist, voice guidance on/off");
+                Reply($"Say {vctl?.Wake ?? "GPS"}, then: nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job, or not now when the new job question is on screen. Follow the game route, to go where the game's GPS is set. Show job info, or show the map, or back to navigation. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off. Minimize or restore the window.");
+                Toast("Voice commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer · take the job / not now · follow the game route · show job info · show the map · cancel the route · back to my route · how far · when do I arrive · what is next · speed limit · fuel level · lane guidance, cruise assist, voice guidance on/off · minimize / restore the window");
                 break;
         }
     }

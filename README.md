@@ -49,6 +49,12 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.11.1
+
+* **Rest areas**: the parking places that the game marks on its own map with a parking trigger are now on the map too (most rest areas in ATS and many in ETS2 were missing). Both maps are rebuilt once automatically.
+* **Map mods with a `base` folder** (for example ATS Expansion) are read completely, so their roads show on the map.
+* **Voice control**: *minimize the window* and *restore the window* (or *show the map*) minimize the GPS window or bring it back without taking the keyboard from the game. A bare *no* is no longer a command, so it is not picked up by mistake.
+
 ## New in 1.11.0
 
 * **American Truck Simulator.** The app now works with ATS as well as ETS2 (it was renamed *ETS2-ATS GPS*). It sees which game is running and switches by itself: it builds the ATS map from your ATS install and mods (`atsmap.bin`, kept next to the ETS2 map), and in ATS shows mph, miles, gallons and US-style speed-limit signs and road shields (Interstate, US and state routes), with the game clock at 1:20. Saved trips, avoided roads and the distance scale are kept separately for each game.
@@ -100,6 +106,7 @@ Settings > **Voice control (microphone)** switches it on and sets the wake word 
 | cancel the route / back to my route | Cancels, or returns to the route you had before a detour |
 | how far is it / when do I arrive / what is next / speed limit / fuel level | Spoken answers |
 | lane guidance, cruise assist, voice guidance on / off | Switches them |
+| minimize the window / restore the window (or show the map) | Minimizes the GPS window, or brings it back without taking the keyboard from the game |
 | help | Lists the commands |
 
 ## New in 1.7.2

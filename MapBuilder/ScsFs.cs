@@ -242,6 +242,57 @@ public sealed class DirArchive : Archive
     public override byte[] Read(ulong hash) => File.ReadAllBytes(files[hash]);
 }
 
+/// <summary>One folder of a mounted archive seen as a mod of its own: "base/map/usa/x.base" is read as "map/usa/x.base".</summary>
+public sealed class SubdirArchive : Archive
+{
+    readonly Archive inner;
+    readonly Dictionary<ulong, ulong> toInner = new();
+    /// <summary>The file names with the folder taken off (zip and folder mods), null for a HashFS archive.</summary>
+    public List<string>? Names;
+
+    SubdirArchive(Archive inner) { this.inner = inner; Path = inner.Path; Version = inner.Version; }
+
+    public override byte[] Read(ulong hash) => inner.Read(toInner[hash]);
+
+    void Add(string rel, string full, bool isDir) { ulong h = CityHash.Hash(rel.Trim('/')); toInner[h] = CityHash.Hash(full.Trim('/')); Entries[h] = isDir; }
+
+    /// <summary>The archive's folder as an archive, or null when it has no such folder.</summary>
+    public static SubdirArchive? TryCreate(Archive arc, string dir)
+    {
+        var s = new SubdirArchive(arc);
+        string pre = dir + "/";
+        if (arc is ZipArchiveSource or DirArchive)
+        {
+            var names = arc is ZipArchiveSource zs ? zs.Names : ((DirArchive)arc).Rel;
+            s.Names = new();
+            foreach (var n in names)
+                if (n.StartsWith(pre, StringComparison.Ordinal) && n.Length > pre.Length)
+                {
+                    string rel = n[pre.Length..];
+                    s.Names.Add(rel);
+                    if (!rel.EndsWith('/')) s.Add(rel, n, false);
+                }
+            return s.Names.Count > 0 ? s : null;
+        }
+        // HashFS: walk the folder's directory listings
+        if (!arc.Entries.TryGetValue(CityHash.Hash(dir), out bool isDir) || !isDir) return null;
+        var todo = new Stack<string>(); todo.Push("");
+        while (todo.Count > 0)
+        {
+            string rel = todo.Pop(), full = rel.Length == 0 ? dir : pre + rel;
+            byte[] d;
+            try { d = arc.Read(CityHash.Hash(full)); } catch { continue; }
+            s.Add(rel, full, true);
+            var sub = new SortedSet<string>(StringComparer.Ordinal); var files = new SortedSet<string>(StringComparer.Ordinal);
+            FileSystem.ParseDir(d, arc.Version, sub, files);
+            string p = rel.Length == 0 ? "" : rel + "/";
+            foreach (var f in files) if (arc.Entries.ContainsKey(CityHash.Hash(full + "/" + f))) s.Add(p + f, full + "/" + f, false);
+            foreach (var sd in sub) if (arc.Entries.ContainsKey(CityHash.Hash(full + "/" + sd))) todo.Push(p + sd);
+        }
+        return s.Entries.Count > 1 ? s : null;
+    }
+}
+
 /// <summary>Union file system: later-mounted archives override earlier ones.</summary>
 public sealed class FileSystem
 {
@@ -266,7 +317,8 @@ public sealed class FileSystem
         }
     }
 
-    public bool Mount(string path)
+    /// <summary>Mounts a game archive, or with <paramref name="mod"/> a mod (an archive or a folder).</summary>
+    public bool Mount(string path, bool mod = false)
     {
         Archive arc;
         try
@@ -280,9 +332,19 @@ public sealed class FileSystem
             }
         }
         catch (Exception e) { Log($"  ! could not mount {System.IO.Path.GetFileName(path)}: {e.Message}"); return false; }
-        if (arc is ZipArchiveSource or DirArchive)
+        MountArchive(arc);
+        // the game also mounts a mod's "base" folder as if it were the mod's top level ("requested subdirectory: base" in game.log);
+        // some map mods (ATS Expansion) keep all their files there
+        if (mod && SubdirArchive.TryCreate(arc, "base") is { } sub) { MountArchive(sub); Log($"  {System.IO.Path.GetFileName(path)}: its base folder too"); }
+        Mounted.Add(path);
+        return true;
+    }
+
+    void MountArchive(Archive arc)
+    {
+        if (arc is ZipArchiveSource or DirArchive or SubdirArchive { Names: not null })
         {
-            var names = arc is ZipArchiveSource zs ? zs.Names : ((DirArchive)arc).Rel;
+            var names = arc is ZipArchiveSource zs ? zs.Names : arc is DirArchive da ? da.Rel : ((SubdirArchive)arc).Names!;
             var tmp = new Dictionary<string, (HashSet<string>, HashSet<string>)>();
             ListDirsFromNames(names, tmp);
             foreach (var (d, (sub, fl)) in tmp)
@@ -303,11 +365,9 @@ public sealed class FileSystem
             }
             else Files[h] = arc;
         }
-        Mounted.Add(path);
-        return true;
     }
 
-    static void ParseDir(byte[] d, int version, SortedSet<string> sub, SortedSet<string> fl)
+    internal static void ParseDir(byte[] d, int version, SortedSet<string> sub, SortedSet<string> fl)
     {
         if (version == 1)
         {

@@ -223,7 +223,7 @@ public static class GameFiles
                 }
         }
         foreach (var m in mods)
-            if (fs.Mount(m)) log("  + mod " + Path.GetFileName(m));
+            if (fs.Mount(m, mod: true)) log("  + mod " + Path.GetFileName(m));
         return (fs, version);
     }
 }
