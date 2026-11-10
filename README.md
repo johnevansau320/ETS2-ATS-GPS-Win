@@ -49,6 +49,12 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.12.0
+
+* **Jobs before pickup**: a Freight Market job is seen as soon as you take it, not only when the trailer is hooked up. The app asks *New job: cargo, from ... to ... Navigate to the pickup at ...?*, the banner and Job Info show *Pickup: ... → ...*, and when you hook up the trailer the route switches to the delivery by itself. *Take the job* and the Job button work before pickup too. Needs a TruckSim GPS server that reports the selected job (version 7 or later).
+* **Units**: *Settings > Units* chooses *Same as the game* (km in ETS2, miles in ATS), *Metric* or *Imperial*, in either game: distances, speeds, fuel, weights and the spoken prompts.
+* **Voice control and the instrument cluster**: *minimize* and *restore* now also minimize and restore the ETS2-ATS Instrument Cluster window when it is open; *minimize the GPS* / *minimize the cluster* (and *restore ...*) act on one of them only.
+
 ## New in 1.11.1
 
 * **Rest areas**: the parking places that the game marks on its own map with a parking trigger are now on the map too (most rest areas in ATS and many in ETS2 were missing). Both maps are rebuilt once automatically.

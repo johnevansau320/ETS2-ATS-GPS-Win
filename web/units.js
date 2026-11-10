@@ -16,8 +16,12 @@ const Games = {
 Games.current = (() => { try { return Games.byId(JSON.parse(localStorage.getItem('ets2gps.game'))); } catch (e) { return Games.ETS2; } })();
 
 // Numbers as the current game shows them. Inputs are metric (game metres, km, km/h, litres, kg), as the telemetry and the map give them.
+// The user's choice in Settings: 'game' (km in ETS2, miles in ATS), 'metric' or 'imperial'.
+let unitChoice = (() => { try { return JSON.parse(localStorage.getItem('ets2gps.units')) || 'game'; } catch (e) { return 'game'; } })();
 const Units = {
-  get imperial() { return Games.current.imperial; },
+  get choice() { return unitChoice; },
+  set choice(v) { unitChoice = v; try { localStorage.setItem('ets2gps.units', JSON.stringify(v)); } catch (e) { /* private mode */ } },
+  get imperial() { return unitChoice === 'imperial' || (unitChoice !== 'metric' && Games.current.imperial); },
   get speedUnit() { return Units.imperial ? 'mph' : 'km/h'; },
   get distUnit() { return Units.imperial ? 'mi' : 'km'; },
   get money() { return Games.current.currency; },

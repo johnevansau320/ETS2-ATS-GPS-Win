@@ -14,6 +14,19 @@ public sealed class JobInfo
     public int PlannedKm, Units = 1;
 }
 
+/// <summary>
+/// A job taken but not started yet (Freight Market / cargo market: the trailer is still waiting at the pickup). The game's own job channels stay empty until
+/// the trailer is hooked up; the TruckSim GPS server (version 7 and later) reports the selection as "selectedJob". Ids only - names come from the map.
+/// </summary>
+public sealed class SelectedJob
+{
+    public string CargoId = "", SrcCityId = "", SrcCompanyId = "", DestCityId = "", DestCompanyId = "", Market = "";
+    public int PlannedKm, Units = 1;
+    public string Key => $"{SrcCompanyId}/{SrcCityId}>{DestCompanyId}/{DestCityId}:{CargoId}";
+    /// <summary>"tub_grinder" -> "Tub grinder" (the server gives only the cargo's id).</summary>
+    public string CargoText => CargoId.Length == 0 ? "" : char.ToUpperInvariant(CargoId[0]) + CargoId[1..].Replace('_', ' ');
+}
+
 /// <summary>Extra fields for the trip / job screen. Damage values are percent.</summary>
 public sealed class Detail
 {
@@ -41,6 +54,7 @@ public sealed class TruckState
     public bool OnJob, JobDelivered, JobCancelled, JobFinished;   // the server's gameplay section (events are edge-detected by the app)
     public float NextRestMin = -1f;
     public JobInfo? Job;
+    public SelectedJob? Selected;       // a job taken but not started (driving to the pickup); null while a job is running
     public float NavEtaMin = -1f;       // the game's own ETA in game minutes
     public float GameTimeMin = -1f;     // in-game clock as minutes since day 1 00:00 (day 1 is a Monday)
     public Detail Detail = new();
@@ -149,6 +163,13 @@ public static class Telemetry
                 Cargo = Str(job, "cargo"), MassKg = (float)Num(job, "cargoMass"), Income = (long)Num(job, "income"),
                 DueMin = RestMinutes(Str(job, "remainingTime")), PlannedKm = (int)Math.Round(Num(job, "plannedDistanceKm")),
                 Units = Math.Max(1, (int)Math.Round(Num(job, "unitCount"))),
+            };
+        if (destId.Length == 0 && Obj(root, "selectedJob") is JsonElement sj && sj.ValueKind == JsonValueKind.Object && Str(sj, "sourceCityId").Length > 0)
+            s.Selected = new SelectedJob
+            {
+                CargoId = Str(sj, "cargoId"), SrcCityId = Str(sj, "sourceCityId"), SrcCompanyId = Str(sj, "sourceCompanyId"),
+                DestCityId = Str(sj, "destinationCityId"), DestCompanyId = Str(sj, "destinationCompanyId"), Market = Str(sj, "market"),
+                PlannedKm = (int)Math.Round(Num(sj, "plannedDistanceKm")), Units = Math.Max(1, (int)Math.Round(Num(sj, "unitCount"))),
             };
         s.Detail = new Detail
         {

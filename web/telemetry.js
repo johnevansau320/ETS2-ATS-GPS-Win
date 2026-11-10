@@ -69,6 +69,12 @@ function parseTruckState(j) {
     },
     navEtaMin: restMinutes(typeof nav.estimatedTime === 'string' ? nav.estimatedTime : ''),
     gameTimeMin: clockMinutes(str(game, 'time')),
+    // a job taken but not started (Freight Market: the trailer still waits at the pickup); the game's job channels stay empty until it is hooked up
+    selected: destId === '' && j.selectedJob && str(j.selectedJob, 'sourceCityId') ? {
+      cargoId: str(j.selectedJob, 'cargoId'), srcCityId: str(j.selectedJob, 'sourceCityId'), srcCompanyId: str(j.selectedJob, 'sourceCompanyId'),
+      destCityId: str(j.selectedJob, 'destinationCityId'), destCompanyId: str(j.selectedJob, 'destinationCompanyId'),
+      plannedKm: Math.round(num(j.selectedJob, 'plannedDistanceKm')), units: Math.round(num(j.selectedJob, 'unitCount')) || 1,
+    } : null,
     onJob: gp.onJob === true, jobDelivered: gp.jobDelivered === true, jobCancelled: gp.jobCancelled === true, jobFinished: gp.jobFinished === true,
     detail: {
       truckName: (str(truck, 'make') + ' ' + str(truck, 'model')).trim(),

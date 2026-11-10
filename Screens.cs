@@ -57,8 +57,9 @@ public sealed partial class MainWindow
         head.RowDefinitions.Add(new RowDefinition()); head.RowDefinitions.Add(new RowDefinition { Height = new GridLength(18) }); head.RowDefinitions.Add(new RowDefinition());
         head.ColumnDefinitions.Add(new ColumnDefinition()); head.ColumnDefinitions.Add(new ColumnDefinition());
         TextBlock T(string t, HorizontalAlignment h, int row, int col) { var tb = new TextBlock { Text = t, FontSize = 15, Foreground = Brushes.White, HorizontalAlignment = h }; Grid.SetRow(tb, row); Grid.SetColumn(tb, col); head.Children.Add(tb); return tb; }
-        T("FROM  " + (j != null ? PlaceName(j.SrcCompany, j.SrcCity) : "-"), HorizontalAlignment.Left, 0, 0);
-        T("TO  " + (j != null ? PlaceName(j.DestCompany, j.DestCity) : (hasDest ? destName : "-")), HorizontalAlignment.Right, 0, 1);
+        var sel = j == null ? s.Selected : null;   // a job taken but not started: show where it goes
+        T("FROM  " + (j != null ? PlaceName(j.SrcCompany, j.SrcCity) : sel != null ? PlaceName(CompanyLabel(sel.SrcCompanyId), CityLabel(sel.SrcCityId)) : "-"), HorizontalAlignment.Left, 0, 0);
+        T("TO  " + (j != null ? PlaceName(j.DestCompany, j.DestCity) : sel != null ? PlaceName(CompanyLabel(sel.DestCompanyId), CityLabel(sel.DestCityId)) : (hasDest ? destName : "-")), HorizontalAlignment.Right, 0, 1);
         var bar = new Grid { Height = 10, VerticalAlignment = VerticalAlignment.Center };
         bar.Children.Add(new Border { Background = Ui.Frozen(Color.FromRgb(36, 48, 64)), CornerRadius = new CornerRadius(5) });
         var fill = new Border { Background = Ui.Frozen(Color.FromRgb(90, 190, 255)), CornerRadius = new CornerRadius(5), HorizontalAlignment = HorizontalAlignment.Left };
@@ -480,6 +481,14 @@ public sealed partial class MainWindow
         sp.Children.Add(srv);
         sp.Children.Add(new TextBlock { Text = "Server port (changes apply after restarting the app)", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0) });
         var port = Box(cfg.ServerPort.ToString(CultureInfo.InvariantCulture)); port.Width = 120; port.HorizontalAlignment = HorizontalAlignment.Left; sp.Children.Add(port);
+        sp.Children.Add(H("Units"));
+        var unitButtons = new List<(RadioButton, string)>();
+        foreach (var (id, label) in new[] { ("game", "Same as the game (kilometres in ETS2, miles in ATS)"), ("metric", "Metric: km, km/h, metres, litres, tonnes"), ("imperial", "Imperial: miles, mph, feet, gallons, pounds") })
+        {
+            var rb = new RadioButton { Content = label, GroupName = "units", IsChecked = cfg.UnitSystem == id, Foreground = Brushes.White, Margin = new Thickness(0, 2, 0, 2) };
+            unitButtons.Add((rb, id)); sp.Children.Add(rb);
+        }
+        if (!unitButtons.Any(b => b.Item1.IsChecked == true)) unitButtons[0].Item1.IsChecked = true;
         sp.Children.Add(H("Distances"));
         var realD = new CheckBox { Content = new TextBlock { Text = "Real distances (turns, lane guidance, route length). Off = Sim distances like the game shows", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.RealDistances, Foreground = Brushes.White };
         sp.Children.Add(realD);
@@ -509,6 +518,14 @@ public sealed partial class MainWindow
             if (int.TryParse(port.Text, out var pt) && pt > 1023 && pt < 65536) cfg.ServerPort = pt;
             if (float.TryParse(scale.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var sc) && sc > 0) cfg.GameDistScale = sc;
             cfg.RealDistances = realD.IsChecked == true;
+            string units = unitButtons.FirstOrDefault(b => b.Item1.IsChecked == true).Item2 ?? "game";
+            if (units != cfg.UnitSystem)
+            {
+                cfg.UnitSystem = units; Units.Choice = units;
+                speedUnit.Text = Units.SpeedUnit;
+                if (truck != null) { UpdateBannerJob(); if (tripOpen) UpdateTrip(); }
+                NavTick();
+            }
             distScale = cfg.RealDistances ? 1f : cfg.GameDistScale; if (nav != null) nav.DistScale = distScale;
             cfg.Save();
             if (vcChanged) ApplyVoiceControl(announce: true);

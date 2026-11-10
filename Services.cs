@@ -33,6 +33,7 @@ public sealed class AppSettings
     public float DistScale { get; set; } = 19f;
     /// <summary>true: distances in real metres (map units); false: game (Sim) distances, map metres x DistScale.</summary>
     public bool RealDistances { get; set; } = false;
+    public string UnitSystem { get; set; } = "game";   // "game" (the game's own units), "metric" or "imperial"
     /// <summary>While cruise control is on, keep it on the current speed limit (taps the game's cruise faster / slower keys).</summary>
     public bool CruiseAutoLimit { get; set; } = true;
     /// <summary>Show the lane guidance panel on the map (and in the lane overlay window).</summary>

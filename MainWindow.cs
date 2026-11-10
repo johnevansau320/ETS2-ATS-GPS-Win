@@ -577,6 +577,14 @@ public sealed partial class MainWindow : Window
     void UpdateBannerJob()
     {
         var j = truck?.Job;
+        if (j == null && truck?.Selected is { } sel)
+        {
+            // taken but not started: driving to the pickup
+            bJob1.Text = "Pickup: " + PlaceName(CompanyLabel(sel.SrcCompanyId), CityLabel(sel.SrcCityId)) + "  →  " + PlaceName(CompanyLabel(sel.DestCompanyId), CityLabel(sel.DestCityId));
+            bJob2.Text = sel.CargoText + (sel.PlannedKm > 0 ? "  ·  " + Units.LongText(sel.PlannedKm) : "") + "  ·  Hook up the trailer to start the job";
+            bJob2.Foreground = Brushes.White;
+            return;
+        }
         if (j == null) { bJob1.Text = ""; bJob2.Text = ""; return; }
         bJob1.Text = PlaceName(j.SrcCompany, j.SrcCity) + "  →  " + PlaceName(j.DestCompany, j.DestCity);
         var parts = new List<string>();

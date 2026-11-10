@@ -26,7 +26,7 @@ public sealed partial class MainWindow
     void CheckQuickSave(TruckState t, long now)
     {
         float navM = (t.Detail?.NavDistanceKm ?? 0f) * 1000f;
-        bool noJob = t.DestCityId.Length == 0;
+        bool noJob = t.DestCityId.Length == 0 && t.Selected == null;   // a selected job is routed from the telemetry: no save needed
         // a new destination: the route appears, or its length jumps (more than 1 km and 10 %) rather than shrinking as you drive
         if (noJob && navM > 0f && (gameNavM <= 0f || (MathF.Abs(navM - gameNavM) > 1000f && MathF.Abs(navM - gameNavM) > 0.1f * gameNavM)))
         { quickSaveWantMs = now; quickSaveWantUtc = DateTime.UtcNow; }
@@ -48,7 +48,7 @@ public sealed partial class MainWindow
         gameGpsCheckMs = now;
         var t = truck;
         if (!force && t != null) CheckQuickSave(t, now);
-        if (!force && (t == null || t.DestCityId.Length > 0)) return;   // on a job: the job route is used
+        if (!force && (t == null || t.DestCityId.Length > 0 || t.Selected != null)) return;   // on a job, or one selected: the job / pickup route is used
         gameGpsBusy = true;
         Task.Run(() =>
         {

@@ -76,8 +76,13 @@ public sealed class VoiceControl : IDisposable
         ("cruise:off", new[] { "turn cruise assist off", "cruise assist off", "automatic cruise off" }),
         ("voice:on", new[] { "turn voice guidance on", "voice guidance on", "unmute voice guidance" }),
         ("voice:off", new[] { "turn voice guidance off", "voice guidance off", "mute voice guidance" }),
-        ("window:min", new[] { "minimize the window", "minimize the GPS", "minimize", "hide the window", "hide the GPS" }),
-        ("window:restore", new[] { "restore the window", "restore the GPS", "restore", "show the window", "show the GPS", "bring the window back", "bring back the GPS" }),
+        // "minimize" / "restore" act on this window and the ETS2-ATS Instrument Cluster window (when it is open); naming one acts on that one only
+        ("window:min", new[] { "minimize the window", "minimize the windows", "minimize", "hide the window", "hide the windows" }),
+        ("window:restore", new[] { "restore the window", "restore the windows", "restore", "show the window", "show the windows", "bring the window back", "bring the windows back" }),
+        ("gps:min", new[] { "minimize the GPS", "hide the GPS" }),
+        ("gps:restore", new[] { "restore the GPS", "show the GPS", "bring back the GPS" }),
+        ("cluster:min", new[] { "minimize the cluster", "minimize the instrument cluster", "hide the cluster", "hide the instrument cluster" }),
+        ("cluster:restore", new[] { "restore the cluster", "restore the instrument cluster", "show the cluster", "show the instrument cluster", "bring back the cluster" }),
         ("help", new[] { "help", "what can I say", "voice commands", "list the voice commands" }),
     };
 

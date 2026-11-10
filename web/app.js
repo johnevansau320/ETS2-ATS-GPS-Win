@@ -257,6 +257,14 @@ function setManeuver(next, dist, what, then) {
 function clearManeuver() { lastManeuverKey = ''; $('bDist').textContent = ''; $('bWhat').textContent = 'No route - tap Search, Job or long-press the map'; clearGlyph($('bGlyph')); $('bThen').style.display = 'none'; }
 function updateBannerJob() {
   const j = truck && truck.job;
+  if (!j && truck && truck.selected) {
+    // taken but not started: driving to the pickup
+    const sel = truck.selected;
+    $('bJob1').textContent = 'Pickup: ' + placeName(companyLabel(sel.srcCompanyId), cityLabel(sel.srcCityId)) + '  →  ' + placeName(companyLabel(sel.destCompanyId), cityLabel(sel.destCityId));
+    $('bJob2').textContent = cargoText(sel.cargoId) + (sel.plannedKm > 0 ? '  ·  ' + Units.longText(sel.plannedKm) : '') + '  ·  Hook up the trailer to start the job';
+    $('bJob2').classList.remove('late');
+    return;
+  }
   if (!j) { $('bJob1').textContent = ''; $('bJob2').textContent = ''; return; }
   $('bJob1').textContent = placeName(j.srcCompany, j.srcCity) + '  →  ' + placeName(j.destCompany, j.destCity);
   const parts = [];
@@ -509,9 +517,33 @@ function routeToJob() {
   if (!map) { toast('Map not loaded yet'); return; }
   const t = truck;
   if (!t || !t.connected) { toast('Start the game first - no telemetry yet'); return; }
-  if (!t.destCityId && !t.destCity) { toast('The game reports no active job'); return; }
+  if (!t.destCityId && !t.destCity) {
+    if (t.selected) { navigateToPickup(t.selected); return; }
+    toast('The game reports no active job'); return;
+  }
   navigateToJob(t);
 }
+// ---- a job taken but not started: the drive to the pickup
+let pickupDest = ''; // destName of the route to a selected job's pickup: replaced by the delivery route when the trailer is hooked up
+function navigateToPickup(sel) {
+  if (!map) { toast('Map not loaded yet'); return; }
+  const name = 'Pickup: ' + placeName(companyLabel(sel.srcCompanyId), cityLabel(sel.srcCityId));
+  const co = map.findCompany(sel.srcCityId, sel.srcCompanyId);
+  if (co) {
+    const yard = map.drops ? map.drops.get((sel.srcCompanyId + '/' + sel.srcCityId).toLowerCase()) : null;
+    computeRoute(yard ? yard.Gate[0] : co.x, yard ? yard.Gate[1] : co.z, name, { announce: true });
+  } else {
+    const c = map.findCity(sel.srcCityId);
+    if (!c) { toast("The pickup '" + sel.srcCityId + "' is not on the loaded map"); return; }
+    computeRoute(c.x, c.z, name, { announce: true });
+  }
+  pickupDest = name;
+}
+// names for a selected job's ids, from the map (the telemetry gives ids only)
+const prettyId = (id) => (id ? id.charAt(0).toUpperCase() + id.slice(1).replace(/_/g, ' ') : '');
+function cityLabel(id) { const c = map && map.findCity(id); return (c && c.name) || prettyId(id); }
+function companyLabel(id) { return (map && map.companyNames.get(String(id).toLowerCase())) || prettyId(id); }
+function cargoText(id) { return prettyId(id); }
 // ---- the job ends: delivered (arrived) or cancelled (route no longer wanted)
 let evInit = false, evConn = false, pDelivered = false, pCancelled = false, pFinished = false, pOnJob = false;
 function checkJobEvents(t) {
@@ -539,7 +571,7 @@ function finishRoute(say) {
 let gameGpsCheck = -100000, gameGpsBusy = false, gameGpsSeen = 0, gameGpsOffered = '';
 function checkGameGps(now) {
   const t = truck;
-  if (!map || !t || !followGameGps || gameGpsBusy || now - gameGpsCheck < 5000 || t.destCityId) return;
+  if (!map || !t || !followGameGps || gameGpsBusy || now - gameGpsCheck < 5000 || t.destCityId || t.selected) return;
   gameGpsCheck = now; gameGpsBusy = true;
   fetch('/gamegps', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j) offerGameGps(j); })
     .catch(() => {}).finally(() => { gameGpsBusy = false; });
@@ -578,11 +610,30 @@ function describePoint(x, z) {
 
 function checkNewJob(t) {
   if (!map) return;
-  const key = t.destCityId ? t.destCityId + '/' + t.destCompanyId : '';
+  const sel = t.selected;
+  const key = t.destCityId ? t.destCityId + '/' + t.destCompanyId
+    : sel ? 'sel:' + sel.srcCompanyId + '/' + sel.srcCityId + '>' + sel.destCompanyId + '/' + sel.destCityId + ':' + sel.cargoId : '';
   if (key === lastJobKey) return;
   lastJobKey = key;
-  if (key) resetTrip();
   if (!key) return;
+  if (sel) {
+    // a job was taken in the job market: offer the drive to the pickup straight away
+    const pickup = placeName(companyLabel(sel.srcCompanyId), cityLabel(sel.srcCityId));
+    modal({
+      title: 'New job',
+      message: cargoText(sel.cargoId) + ': ' + cityLabel(sel.srcCityId) + ' to ' + cityLabel(sel.destCityId) + (sel.plannedKm > 0 ? ' (' + Units.longText(sel.plannedKm) + ')' : '') +
+        '. Navigate to the pickup at ' + pickup + '?',
+      buttons: [{ label: 'Not now' }, { label: 'Navigate', primary: true, fn: () => navigateToPickup(sel) }],
+    });
+    return;
+  }
+  resetTrip();
+  if (hasDest && pickupDest && destName === pickupDest) {
+    // the trailer is hooked up at the pickup we routed to: carry on to the delivery without asking
+    pickupDest = '';
+    navigateToJob(t);
+    return;
+  }
   const name = placeName(t.destCompany, t.destCity);
   modal({ title: 'New job', message: 'Navigate to ' + name + '?', buttons: [{ label: 'Not now' }, { label: 'Navigate', primary: true, fn: () => navigateToJob(t) }] });
 }
@@ -890,7 +941,10 @@ function updateTrip() {
   const progress = planned > 0 && remGameKm > 0 ? Math.min(1, Math.max(0, 1 - remGameKm / planned)) : 0;
   const cal = new Date();
   let html = '<h2>TRIP DETAILS ' + (j ? '<small style="color:' + green + '">● ON JOB</small>' : '') + '</h2>';
-  html += '<div class="card" style="margin-bottom:10px"><div class="row"><span>FROM <b>' + esc(j ? placeName(j.srcCompany, j.srcCity) : '-') + '</b></span><span>TO <b>' + esc(j ? placeName(j.destCompany, j.destCity) : (hasDest ? destName : '-')) + '</b></span></div>' +
+  const sel = j ? null : s.selected; // a job taken but not started: show where it goes
+  const from = j ? placeName(j.srcCompany, j.srcCity) : sel ? placeName(companyLabel(sel.srcCompanyId), cityLabel(sel.srcCityId)) : '-';
+  const to = j ? placeName(j.destCompany, j.destCity) : sel ? placeName(companyLabel(sel.destCompanyId), cityLabel(sel.destCityId)) : (hasDest ? destName : '-');
+  html += '<div class="card" style="margin-bottom:10px"><div class="row"><span>FROM <b>' + esc(from) + '</b></span><span>TO <b>' + esc(to) + '</b></span></div>' +
     '<div class="tbar"><div style="width:' + Math.round(progress * 100) + '%"></div></div>' +
     '<div class="row"><span>' + Units.longText(remGameKm) + ' left' + (planned > 0 ? ' of ' + Units.longText(planned) + ' · ' + Math.round(progress * 100) + '%' : '') + '</span><span>Local ' + cal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' · ' + Games.current.short + ' ' + clockText(s.gameTimeMin) + '</span></div></div>';
   html += '<div class="cards">';
@@ -905,7 +959,8 @@ function updateTrip() {
     }
     if (planned > 0) c += row('Planned distance', Units.longText(planned));
     html += '<div class="card">' + c + '</div>';
-  } else html += '<div class="card"><h3>JOB</h3>' + row('Status', 'no active job') + '</div>';
+  } else if (sel) html += '<div class="card"><h3>JOB</h3>' + row('Status', 'waiting at the pickup') + row('Cargo', esc(cargoText(sel.cargoId))) + (sel.plannedKm > 0 ? row('Planned distance', Units.longText(sel.plannedKm)) : '') + '</div>';
+  else html += '<div class="card"><h3>JOB</h3>' + row('Status', 'no active job') + '</div>';
   // route
   let rc = '<h3>ROUTE</h3>' + row('Destination', esc(hasDest ? destName : 'none'));
   if (routingNow) {
@@ -972,6 +1027,10 @@ function showSettings() {
       });
       const tv = document.createElement('button'); tv.className = 'inline'; tv.textContent = 'Test voice';
       tv.onclick = () => { const sel = body.querySelector('input[name=vo]:checked'); voice.output = sel ? parseInt(sel.value, 10) : 0; voice.unlock(); voice.say('Voice guidance is working.'); }; body.appendChild(tv);
+      h('Units');
+      [['game', 'Same as the game (kilometres in ETS2, miles in ATS)'], ['metric', 'Metric: km, km/h, metres, litres, tonnes'], ['imperial', 'Imperial: miles, mph, feet, gallons, pounds']].forEach(([id, t]) => {
+        const l = document.createElement('label'); l.innerHTML = '<input type="radio" name="un" value="' + id + '"' + (Units.choice === id ? ' checked' : '') + '> ' + t; body.appendChild(l);
+      });
       h('Distances');
       const rl = document.createElement('label'); rl.innerHTML = '<input type="checkbox" id="setReal"' + (realDist ? ' checked' : '') + '> Real distances (turns, lane guidance, route length). Off = Sim distances like the game shows'; body.appendChild(rl);
       const sl = document.createElement('div'); sl.style.cssText = 'font-size:13px;color:#aab3c0;margin-top:8px'; sl.textContent = 'Sim scale for ' + Games.current.short + ' (the game shows map metres x' + Games.current.scale + ')'; body.appendChild(sl);
@@ -995,6 +1054,12 @@ function saveSettings() {
   const sc = parseFloat(($('setScale') || {}).value);
   if (sc > 0) { simScale = sc; ls.set('scale', sc); }
   realDist = !!($('setReal') || {}).checked; ls.set('real', realDist);
+  const un = body.querySelector('input[name=un]:checked');
+  if (un && un.value !== Units.choice) {
+    Units.choice = un.value;
+    $('speedUnit').textContent = Units.speedUnit;
+    updateBannerJob(); if (tripOpen) updateTrip(); navTick();
+  }
   if ($('setGameGps')) { followGameGps = $('setGameGps').checked; ls.set('gamegps', followGameGps); }
   distScale = realDist ? 1 : simScale; if (nav) nav.distScale = distScale;
   const vo = body.querySelector('input[name=vo]:checked');

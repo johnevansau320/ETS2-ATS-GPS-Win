@@ -46,7 +46,22 @@ public sealed partial class MainWindow
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
-    const int SW_SHOWNOACTIVATE = 4;
+    const int SW_SHOWNOACTIVATE = 4, SW_SHOWMINNOACTIVE = 7;
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern IntPtr FindWindow(string? cls, string title);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
+
+    /// <summary>
+    /// Minimizes or restores the ETS2-ATS Instrument Cluster window (found by its title), without activating it so the game keeps the keyboard.
+    /// False when the cluster is not running.
+    /// </summary>
+    static bool ClusterWindow(bool minimize)
+    {
+        var h = FindWindow(null, "ETS2-ATS Instrument Cluster");
+        if (h == IntPtr.Zero) return false;
+        if (minimize) { if (!IsIconic(h)) ShowWindow(h, SW_SHOWMINNOACTIVE); }
+        else if (IsIconic(h)) ShowWindow(h, SW_SHOWNOACTIVATE);
+        return true;
+    }
 
     /// <summary>Brings the minimized window back at its last size and place without activating it, so the game keeps the keyboard.</summary>
     void RestoreWindow()
@@ -82,7 +97,11 @@ public sealed partial class MainWindow
                 // answers the question on screen if there is one (the route announcement is spoken by the navigation itself)
                 if (askAccept is { } accept && Dlg.CloseOpen(accept)) break;
                 if (!inGame || map == null) { Reply("The game is not running yet."); return; }
-                if (t!.DestCityId.Length == 0 && t.DestCity.Length == 0) { Reply("The game reports no active job."); return; }
+                if (t!.DestCityId.Length == 0 && t.DestCity.Length == 0)
+                {
+                    if (t.Selected is { } sel) { NavigateToPickup(sel); break; }
+                    Reply("The game reports no active job."); return;
+                }
                 NavigateToJob(t);
                 break;
             case "gamegps":
@@ -144,16 +163,26 @@ public sealed partial class MainWindow
                 Reply("Voice guidance off."); voice.Enabled = false; cfg.VoiceOn = false; cfg.Save(); UpdateVoiceButton();
                 break;
             case "window:min":
+            case "gps:min":
+                if (key == "window:min") ClusterWindow(true);
                 WindowState = WindowState.Minimized;
                 Reply("Minimized.");
                 break;
             case "window:restore":
+            case "gps:restore":
                 RestoreWindow();
+                if (key == "window:restore") ClusterWindow(false);
                 Reply("Restored.");
                 break;
+            case "cluster:min":
+                Reply(ClusterWindow(true) ? "Cluster minimized." : "The instrument cluster is not running.");
+                break;
+            case "cluster:restore":
+                Reply(ClusterWindow(false) ? "Cluster restored." : "The instrument cluster is not running.");
+                break;
             case "help":
-                Reply($"Say {vctl?.Wake ?? "GPS"}, then: nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job, or not now when the new job question is on screen. Follow the game route, to go where the game's GPS is set. Show job info, or show the map, or back to navigation. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off. Minimize or restore the window.");
-                Toast("Voice commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer · take the job / not now · follow the game route · show job info · show the map · cancel the route · back to my route · how far · when do I arrive · what is next · speed limit · fuel level · lane guidance, cruise assist, voice guidance on/off · minimize / restore the window");
+                Reply($"Say {vctl?.Wake ?? "GPS"}, then: nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job, or not now when the new job question is on screen. Follow the game route, to go where the game's GPS is set. Show job info, or show the map, or back to navigation. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off. Minimize or restore, for this window and the instrument cluster, or name the GPS or the cluster.");
+                Toast("Voice commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer · take the job / not now · follow the game route · show job info · show the map · cancel the route · back to my route · how far · when do I arrive · what is next · speed limit · fuel level · lane guidance, cruise assist, voice guidance on/off · minimize / restore (the GPS, the cluster, or both)");
                 break;
         }
     }

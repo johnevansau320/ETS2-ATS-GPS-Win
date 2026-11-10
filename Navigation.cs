@@ -345,9 +345,37 @@ public sealed partial class MainWindow
         if (map == null) { Toast("Map not loaded yet"); return; }
         var t = truck;
         if (t == null || !t.Connected) { Toast("Start the game first - no telemetry yet"); return; }
-        if (t.DestCityId.Length == 0 && t.DestCity.Length == 0) { Toast("The game reports no active job"); return; }
+        if (t.DestCityId.Length == 0 && t.DestCity.Length == 0)
+        {
+            if (t.Selected is { } sel) { NavigateToPickup(sel); return; }
+            Toast("The game reports no active job"); return;
+        }
         NavigateToJob(t);
     }
+
+    string pickupDest = "";   // destName of the route to a selected job's pickup ("" = none): replaced by the delivery route when the trailer is hooked up
+
+    /// <summary>A selected job's pickup: the company yard where the trailer waits.</summary>
+    void NavigateToPickup(SelectedJob sel)
+    {
+        var m = map;
+        if (m == null) { Toast("Map not loaded yet"); return; }
+        string name = "Pickup: " + PlaceName(CompanyLabel(sel.SrcCompanyId), CityLabel(sel.SrcCityId));
+        var co = m.FindCompany(sel.SrcCityId, sel.SrcCompanyId);
+        if (co != null)
+        {
+            var yard = m.FindDrops(sel.SrcCityId, sel.SrcCompanyId);
+            ComputeRoute(yard != null ? yard.Gate[0] : co.X, yard != null ? yard.Gate[1] : co.Z, name, announce: true);
+        }
+        else if (m.FindCity(sel.SrcCityId) is { } c) ComputeRoute(c.X, c.Z, name, announce: true);
+        else { Toast($"The pickup '{sel.SrcCityId}' is not on the loaded map"); return; }
+        pickupDest = name;
+    }
+
+    /// <summary>Names for a selected job's ids, from the map (the telemetry gives ids only).</summary>
+    string CityLabel(string id) => map?.FindCity(id)?.Name ?? Pretty(id);
+    string CompanyLabel(string id) => map != null && map.CompanyNames.TryGetValue(id, out var n) && n.Length > 0 ? n : Pretty(id);
+    static string Pretty(string id) => id.Length == 0 ? "" : char.ToUpperInvariant(id[0]) + id[1..].Replace('_', ' ');
 
     void NavigateToJob(TruckState t)
     {
@@ -402,11 +430,36 @@ public sealed partial class MainWindow
     void CheckNewJob(TruckState t)
     {
         if (map == null) return;
-        string key = t.DestCityId.Length > 0 ? t.DestCityId + "/" + t.DestCompanyId : "";
+        string key = t.DestCityId.Length > 0 ? t.DestCityId + "/" + t.DestCompanyId : t.Selected is { } sj ? "sel:" + sj.Key : "";
         if (key == lastJobKey) return;
         lastJobKey = key;
-        if (key.Length > 0) ResetTrip();
         if (key.Length == 0) return;
+        if (t.Selected is { } sel)
+        {
+            // a job was taken in the job market: offer the drive to the pickup straight away
+            string pickup = PlaceName(CompanyLabel(sel.SrcCompanyId), CityLabel(sel.SrcCityId));
+            string text = $"{sel.CargoText}: {CityLabel(sel.SrcCityId)} to {CityLabel(sel.DestCityId)}" + (sel.PlannedKm > 0 ? $" ({Units.LongText(sel.PlannedKm)})" : "") +
+                $".\n\nNavigate to the pickup at {pickup}?";
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                askAccept = () => NavigateToPickup(sel);
+                try
+                {
+                    Dlg.Message(this, "New job", text + (vctl?.Active == true ? $"\n\nSay \"{vctl.Wake}, take the job\" or \"{vctl.Wake}, not now\"." : ""),
+                        ("Not now", null, false), ("Navigate", () => NavigateToPickup(sel), true));
+                }
+                finally { askAccept = null; }
+            }));
+            return;
+        }
+        ResetTrip();
+        if (hasDest && pickupDest.Length > 0 && destName == pickupDest)
+        {
+            // the trailer is hooked up at the pickup we routed to: carry on to the delivery without asking
+            pickupDest = "";
+            Dispatcher.BeginInvoke(new Action(() => NavigateToJob(t)));
+            return;
+        }
         string name = PlaceName(t.DestCompany, t.DestCity);
         Dispatcher.BeginInvoke(new Action(() =>
         {

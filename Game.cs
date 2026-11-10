@@ -35,7 +35,9 @@ public static class Units
 {
     const float MPerMile = 1609.344f, MPerFoot = 0.3048f, LPerGallon = 3.785411784f;
     static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
-    public static bool Imperial => Games.Current.Imperial;
+    /// <summary>"game" (km for ETS2, miles for ATS), "metric" or "imperial": the user's choice in Settings.</summary>
+    public static string Choice = "game";
+    public static bool Imperial => Choice == "imperial" || (Choice != "metric" && Games.Current.Imperial);
 
     public static string SpeedUnit => Imperial ? "mph" : "km/h";
     public static string DistUnit => Imperial ? "mi" : "km";

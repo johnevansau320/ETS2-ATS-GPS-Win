@@ -65,6 +65,7 @@ public static class Program
             }
         var cfg = AppSettings.Load();
         if (!args.Contains("--game")) Games.Current = Games.ById(cfg.Game);
+        Units.Choice = cfg.UnitSystem;
         if (args.Contains("--topmost")) cfg.Topmost = true;
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
         app.DispatcherUnhandledException += (_, e) =>
