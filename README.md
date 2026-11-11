@@ -175,6 +175,10 @@ The app looks for a newer release on GitHub about 20 seconds after it starts and
 ## Requirements and build
 
 * Windows 10/11, Euro Truck Simulator 2 (Steam) and the [TruckSim GPS Telemetry Server](https://github.com/TruckSim-GPS/trucksim-gps-server) running next to it.
-* To build: the .NET 8 SDK, then `.\build.ps1` (single self-contained `publish\Ets2Gps.exe`) and `.\install.ps1` (Start Menu shortcut, optional autostart), or `.uild-installer.ps1` for a setup program (needs Inno Setup 6). GitHub Actions builds the exe on every push; releases carry a ready-made exe.
+* To build: the .NET 8 SDK, then `.\build.ps1` (single self-contained `publish\Ets2Gps.exe`) and `.\install.ps1` (Start Menu shortcut, optional autostart), or `.\build-installer.ps1` for a setup program (needs Inno Setup 6). GitHub Actions builds the exe on every push; releases carry a ready-made exe.
 * The `web` folder is the browser / tablet version served by the built-in server; it is embedded in the exe.
 * Map and file formats follow the MIT-licensed [ts-map](https://github.com/dariowouters/ts-map) project.
+
+## Support
+
+These apps are free and stay free. If they've made your hauls better and you'd like to say thanks, you can [buy me a coffee](https://buymeacoffee.com/johnevansau320). More apps and mods: [johnevansau.com](https://johnevansau.com).
