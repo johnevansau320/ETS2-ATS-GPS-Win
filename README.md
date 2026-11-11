@@ -49,6 +49,10 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.12.1
+
+* **New app icon** for the app, the setup program and the web version (browser tab and home-screen icon). Nothing else has changed.
+
 ## New in 1.12.0
 
 * **Jobs before pickup**: a Freight Market job is seen as soon as you take it, not only when the trailer is hooked up. The app asks *New job: cargo, from ... to ... Navigate to the pickup at ...?*, the banner and Job Info show *Pickup: ... → ...*, and when you hook up the trailer the route switches to the delivery by itself. *Take the job* and the Job button work before pickup too. Needs a TruckSim GPS server that reports the selected job (version 7 or later).

@@ -1,7 +1,7 @@
 ﻿; Inno Setup script for ETS2-ATS GPS (Windows). Build with build-installer.ps1 (needs Inno Setup 6).
 ; Installs for the current user only (no administrator rights).
 #define AppName "ETS2-ATS GPS"
-#define AppVer "1.12.0"
+#define AppVer "1.12.1"
 #define OverlayExe "..\..\overlay-dotnet\publish\Ets2LaneOverlay.exe"
 
 [Setup]

@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Ets2Gps</AssemblyName>
     <RootNamespace>Ets2Gps</RootNamespace>
-    <Version>1.12.0</Version>
+    <Version>1.12.1</Version>
     <Product>ETS2-ATS GPS</Product>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
