@@ -194,7 +194,7 @@ public sealed class Voice : IDisposable
             if (tts == null)
             {
                 tts = new SpeechSynthesizer();
-                tts.SpeakCompleted += (_, _) => Ended();
+                tts.SpeakCompleted += (_, e) => Ended(!e.Cancelled);   // a cut utterance reports "cancelled" late: it must not end a newer one's turn
             }
             tts.SetOutputToDefaultAudioDevice();
             tts.Rate = Math.Clamp(rate, -10, 10);
@@ -212,10 +212,76 @@ public sealed class Voice : IDisposable
         player.MediaFailed += (_, _) => Ended();
     }
 
-    void Ended()
+    void Ended(bool endTurn = true)
     {
         if (Interlocked.Decrement(ref pending) < 0) Interlocked.Exchange(ref pending, 0);
         Interlocked.Exchange(ref endedAt, Environment.TickCount64);
+        if (endTurn) EndTurn(0);
+    }
+
+    /// <summary>One utterance's speaking turn with the dispatcher app (shared semaphore). Each utterance has its own handle, so a late or cut
+    /// utterance can only ever release its own turn, never a newer one's.</summary>
+    sealed class Turn
+    {
+        public readonly int Seq;
+        readonly SpeakingTurn? t;
+        readonly CancellationTokenSource cts = new();
+        Task? acquiring;
+        volatile bool settled;
+
+        public Turn(int seq)
+        {
+            Seq = seq;
+            try { t = new SpeakingTurn(); } catch { t = null; }   // e.g. access denied: speak without a turn
+        }
+
+        /// <summary>Waits for the turn, at most 8 s; on timeout or failure the caller speaks anyway. Safe to await more than once.</summary>
+        public Task AcquireAsync() => acquiring ??= DoAcquire();
+
+        async Task DoAcquire()
+        {
+            if (t == null) { settled = true; return; }
+            try { await t.AcquireAsync(TimeSpan.FromSeconds(8), cts.Token).ConfigureAwait(false); }
+            catch { /* speak without the turn */ }
+            finally
+            {
+                settled = true;
+                if (cts.IsCancellationRequested) Finish();   // cut while waiting: give back a turn that arrived too late
+            }
+        }
+
+        /// <summary>The utterance ended, or failed: hand the turn back.</summary>
+        public void Finish()
+        {
+            try { t?.Dispose(); } catch { }
+        }
+
+        /// <summary>Cut by a newer prompt.</summary>
+        public void Cancel()
+        {
+            try { cts.Cancel(); } catch { }
+            try { t?.Release(); } catch { }
+            if (settled) Finish();
+        }
+    }
+
+    Turn? curTurn;
+
+    /// <summary>Ends the current turn; seq 0 = whichever is current.</summary>
+    void EndTurn(int seq)
+    {
+        var u = Volatile.Read(ref curTurn);
+        if (u == null || (seq != 0 && u.Seq != seq)) return;
+        if (Interlocked.CompareExchange(ref curTurn, null, u) == u) u.Finish();
+    }
+
+    // The turn is taken only once the audio is ready, so the dispatcher is never kept waiting during synthesis.
+    async Task<bool> TakeTurn(Turn u, int mySeq)
+    {
+        await u.AcquireAsync();
+        if (mySeq == Volatile.Read(ref seq)) return true;
+        u.Cancel();   // a newer prompt arrived while waiting
+        return false;
     }
 
     /// <summary>Speaks even when voice guidance is switched off here (prompts the tablet sends to this PC).</summary>
@@ -231,6 +297,7 @@ public sealed class Voice : IDisposable
     void Stop()
     {
         Interlocked.Increment(ref seq);
+        try { Interlocked.Exchange(ref curTurn, null)?.Cancel(); } catch { }
         try { tts?.SpeakAsyncCancelAll(); } catch { }
         try { if (player != null) { player.Pause(); player.Source = null; } } catch { }
         Interlocked.Exchange(ref pending, 0);
@@ -245,40 +312,55 @@ public sealed class Voice : IDisposable
             Stop();
             Interlocked.Increment(ref pending);
             Interlocked.Exchange(ref startedAt, Environment.TickCount64);
-            if (vbName != null) _ = SpeakVoicebox(text, Volatile.Read(ref seq));
-            else if (modern != null) _ = SpeakModern(text, Volatile.Read(ref seq));
-            else if (tts != null) tts.SpeakAsync(text);
+            int mySeq = Volatile.Read(ref seq);
+            var turn = new Turn(mySeq);
+            Volatile.Write(ref curTurn, turn);
+            if (vbName != null) _ = SpeakVoicebox(text, mySeq, turn);
+            else if (modern != null) _ = SpeakModern(text, mySeq, turn);
+            else if (tts != null) _ = SpeakClassic(text, mySeq, turn);
             else Ended();
         }
         catch (Exception e) { Ended(); Problem = "Speech failed: " + e.Message; }
     }
 
-    async Task SpeakModern(string text, int mySeq)
+    async Task SpeakClassic(string text, int mySeq, Turn turn)
+    {
+        try
+        {
+            if (!await TakeTurn(turn, mySeq)) return;
+            tts!.SpeakAsync(text);
+        }
+        catch (Exception e) { Ended(); Problem = "Speech failed: " + e.Message; }
+    }
+
+    async Task SpeakModern(string text, int mySeq, Turn turn)
     {
         try
         {
             var stream = await modern!.SynthesizeTextToStreamAsync(text);
             if (mySeq != Volatile.Read(ref seq)) { stream.Dispose(); return; }   // a newer prompt arrived meanwhile
+            if (!await TakeTurn(turn, mySeq)) { stream.Dispose(); return; }
             player!.Source = Windows.Media.Core.MediaSource.CreateFromStream(stream, stream.ContentType);
             player.Play();
         }
         catch (Exception e) { Ended(); Problem = "Speech failed: " + e.Message; }
     }
 
-    async Task SpeakVoicebox(string text, int mySeq)
+    async Task SpeakVoicebox(string text, int mySeq, Turn turn)
     {
         var wav = await VoiceboxAudio(text, 3000);
         if (mySeq != Volatile.Read(ref seq)) return;   // a newer prompt arrived meanwhile
         if (wav == null)
         {
             Problem = "Voicebox is not answering: using the Windows voice";
-            if (modern != null) await SpeakModern(text, mySeq);
-            else if (tts != null) tts.SpeakAsync(text);
+            if (modern != null) await SpeakModern(text, mySeq, turn);
+            else if (tts != null) await SpeakClassic(text, mySeq, turn);
             else Ended();
             return;
         }
         try
         {
+            if (!await TakeTurn(turn, mySeq)) return;
             Problem = null;
             player!.Source = Windows.Media.Core.MediaSource.CreateFromStream(new MemoryStream(wav).AsRandomAccessStream(), "audio/wav");
             player.PlaybackSession.PlaybackRate = playRate;
@@ -318,5 +400,5 @@ public sealed class Voice : IDisposable
         catch { return null; }
     }
 
-    public void Dispose() { tts?.Dispose(); modern?.Dispose(); player?.Dispose(); }
+    public void Dispose() { try { Interlocked.Exchange(ref curTurn, null)?.Cancel(); } catch { } tts?.Dispose(); modern?.Dispose(); player?.Dispose(); }
 }
