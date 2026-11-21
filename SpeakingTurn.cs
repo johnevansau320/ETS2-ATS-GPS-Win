@@ -19,10 +19,9 @@ public sealed class SpeakingTurn : IDisposable
             while (!ct.IsCancellationRequested)
             {
                 var left = Math.Max(0, deadline - Environment.TickCount64);
-                bool got;
-                try { got = _sem.WaitOne((int)Math.Min(left, 100)); }
-                catch (AbandonedMutexException) { got = true; }
-                if (got)
+                // A semaphore has no owner, so it is never abandoned: a holder that dies simply never releases,
+                // and the wait below runs out (the caller then speaks anyway).
+                if (_sem.WaitOne((int)Math.Min(left, 100)))
                 {
                     lock (_gate) _held = true;
                     return true;

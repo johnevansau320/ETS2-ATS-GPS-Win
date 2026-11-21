@@ -194,7 +194,8 @@ public sealed class Voice : IDisposable
             if (tts == null)
             {
                 tts = new SpeechSynthesizer();
-                tts.SpeakCompleted += (_, e) => Ended(!e.Cancelled);   // a cut utterance reports "cancelled" late: it must not end a newer one's turn
+                // A cut utterance reports late: only its own turn may end, never a newer one's.
+                tts.SpeakCompleted += (_, e) => Ended(classicSeqs.TryRemove(e.Prompt, out var s) ? s : -1, !e.Cancelled);
             }
             tts.SetOutputToDefaultAudioDevice();
             tts.Rate = Math.Clamp(rate, -10, 10);
@@ -208,15 +209,22 @@ public sealed class Voice : IDisposable
     {
         if (player != null) return;
         player = new Windows.Media.Playback.MediaPlayer();
-        player.MediaEnded += (_, _) => Ended();
-        player.MediaFailed += (_, _) => Ended();
+        // The player says nothing about which source ended: these belong to the utterance last started on it.
+        player.MediaEnded += (_, _) => Ended(Volatile.Read(ref playerSeq));
+        player.MediaFailed += (_, _) => Ended(Volatile.Read(ref playerSeq));
     }
 
-    void Ended(bool endTurn = true)
+    /// <summary>The seq of the utterance last started on the media player.</summary>
+    int playerSeq = -1;
+    /// <summary>The seq of each classic (System.Speech) prompt still speaking.</summary>
+    readonly System.Collections.Concurrent.ConcurrentDictionary<Prompt, int> classicSeqs = new();
+
+    /// <summary>Utterance <paramref name="mySeq"/> ended or failed: only its own speaking turn is handed back.</summary>
+    void Ended(int mySeq, bool endTurn = true)
     {
         if (Interlocked.Decrement(ref pending) < 0) Interlocked.Exchange(ref pending, 0);
         Interlocked.Exchange(ref endedAt, Environment.TickCount64);
-        if (endTurn) EndTurn(0);
+        if (endTurn) EndTurn(mySeq);
     }
 
     /// <summary>One utterance's speaking turn with the dispatcher app (shared semaphore). Each utterance has its own handle, so a late or cut
@@ -267,11 +275,11 @@ public sealed class Voice : IDisposable
 
     Turn? curTurn;
 
-    /// <summary>Ends the current turn; seq 0 = whichever is current.</summary>
+    /// <summary>Ends the current turn if it belongs to utterance <paramref name="seq"/>; any other seq does nothing.</summary>
     void EndTurn(int seq)
     {
         var u = Volatile.Read(ref curTurn);
-        if (u == null || (seq != 0 && u.Seq != seq)) return;
+        if (u == null || u.Seq != seq) return;
         if (Interlocked.CompareExchange(ref curTurn, null, u) == u) u.Finish();
     }
 
@@ -306,21 +314,22 @@ public sealed class Voice : IDisposable
     void Speak(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
+        int mySeq = -1;
         try
         {
             if (tts == null && modern == null && vbName == null) Configure(0, "");
             Stop();
             Interlocked.Increment(ref pending);
             Interlocked.Exchange(ref startedAt, Environment.TickCount64);
-            int mySeq = Volatile.Read(ref seq);
+            mySeq = Volatile.Read(ref seq);
             var turn = new Turn(mySeq);
             Volatile.Write(ref curTurn, turn);
             if (vbName != null) _ = SpeakVoicebox(text, mySeq, turn);
             else if (modern != null) _ = SpeakModern(text, mySeq, turn);
             else if (tts != null) _ = SpeakClassic(text, mySeq, turn);
-            else Ended();
+            else Ended(mySeq);
         }
-        catch (Exception e) { Ended(); Problem = "Speech failed: " + e.Message; }
+        catch (Exception e) { Ended(mySeq); Problem = "Speech failed: " + e.Message; }
     }
 
     async Task SpeakClassic(string text, int mySeq, Turn turn)
@@ -328,9 +337,11 @@ public sealed class Voice : IDisposable
         try
         {
             if (!await TakeTurn(turn, mySeq)) return;
-            tts!.SpeakAsync(text);
+            var prompt = new Prompt(text);
+            classicSeqs[prompt] = mySeq;
+            tts!.SpeakAsync(prompt);
         }
-        catch (Exception e) { Ended(); Problem = "Speech failed: " + e.Message; }
+        catch (Exception e) { Ended(mySeq); Problem = "Speech failed: " + e.Message; }
     }
 
     async Task SpeakModern(string text, int mySeq, Turn turn)
@@ -340,10 +351,11 @@ public sealed class Voice : IDisposable
             var stream = await modern!.SynthesizeTextToStreamAsync(text);
             if (mySeq != Volatile.Read(ref seq)) { stream.Dispose(); return; }   // a newer prompt arrived meanwhile
             if (!await TakeTurn(turn, mySeq)) { stream.Dispose(); return; }
+            Volatile.Write(ref playerSeq, mySeq);
             player!.Source = Windows.Media.Core.MediaSource.CreateFromStream(stream, stream.ContentType);
             player.Play();
         }
-        catch (Exception e) { Ended(); Problem = "Speech failed: " + e.Message; }
+        catch (Exception e) { Ended(mySeq); Problem = "Speech failed: " + e.Message; }
     }
 
     async Task SpeakVoicebox(string text, int mySeq, Turn turn)
@@ -355,18 +367,19 @@ public sealed class Voice : IDisposable
             Problem = "Voicebox is not answering: using the Windows voice";
             if (modern != null) await SpeakModern(text, mySeq, turn);
             else if (tts != null) await SpeakClassic(text, mySeq, turn);
-            else Ended();
+            else Ended(mySeq);
             return;
         }
         try
         {
             if (!await TakeTurn(turn, mySeq)) return;
             Problem = null;
+            Volatile.Write(ref playerSeq, mySeq);
             player!.Source = Windows.Media.Core.MediaSource.CreateFromStream(new MemoryStream(wav).AsRandomAccessStream(), "audio/wav");
             player.PlaybackSession.PlaybackRate = playRate;
             player.Play();
         }
-        catch (Exception e) { Ended(); Problem = "Speech failed: " + e.Message; }
+        catch (Exception e) { Ended(mySeq); Problem = "Speech failed: " + e.Message; }
     }
 
     /// <summary>The prompt as WAV audio from Voicebox, or null when it does not answer within the time allowed.</summary>
