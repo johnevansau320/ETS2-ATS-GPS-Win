@@ -38,6 +38,9 @@ public sealed class VoiceControl : IDisposable
     /// <summary>Which recognizer is listening: "modern" or "classic".</summary>
     public string EngineName => modern != null ? "modern" : "classic";
     public string Wake { get; private set; } = "GPS";
+    /// <summary>Push to talk: commands count only while this says the button is held (or was just let go), and the wake word may be left out.</summary>
+    public Func<bool>? Gate { get; private set; }
+    bool WakeOptional => Gate != null;
 
     public VoiceControl(Func<bool> muted) { this.muted = muted; }
 
@@ -90,7 +93,10 @@ public sealed class VoiceControl : IDisposable
     public static bool Accept(RecognitionResult r, string wake, out float commandConfidence) => Accept(r, wake, out commandConfidence, out _);
 
     /// <summary>As above, also giving the confidence of the best-heard wake word.</summary>
-    public static bool Accept(RecognitionResult r, string wake, out float commandConfidence, out float wakeConfidence)
+    public static bool Accept(RecognitionResult r, string wake, out float commandConfidence, out float wakeConfidence) => Accept(r, wake, false, out commandConfidence, out wakeConfidence);
+
+    /// <summary>As above; with push to talk (<paramref name="wakeOptional"/>) a command without the wake word counts too.</summary>
+    public static bool Accept(RecognitionResult r, string wake, bool wakeOptional, out float commandConfidence, out float wakeConfidence)
     {
         commandConfidence = 0f; wakeConfidence = 0f;
         if (r.Words.Count == 0) return false;
@@ -98,8 +104,9 @@ public sealed class VoiceControl : IDisposable
         int skip = 0;
         foreach (var v in WakeVariants(wake))
             if (r.Text.StartsWith(v + " ", StringComparison.OrdinalIgnoreCase)) skip = Math.Max(skip, v.Split(' ').Length);
-        if (skip == 0 || skip >= r.Words.Count) return false;
+        if ((skip == 0 && !wakeOptional) || skip >= r.Words.Count) return false;
         for (int i = 0; i < skip; i++) wakeConfidence = Math.Max(wakeConfidence, r.Words[i].Confidence);
+        if (skip == 0) wakeConfidence = 1f;   // push to talk: the button stands in for the wake word
         for (int i = skip; i < r.Words.Count; i++) commandConfidence = Math.Max(commandConfidence, r.Words[i].Confidence);
         return r.Confidence >= MinConfidence && wakeConfidence >= MinWakeConfidence && commandConfidence >= MinCommandConfidence;
     }
@@ -113,7 +120,7 @@ public sealed class VoiceControl : IDisposable
         return list.Distinct().ToArray();
     }
 
-    public static Grammar BuildGrammar(CultureInfo culture, string wake)
+    public static Grammar BuildGrammar(CultureInfo culture, string wake, bool wakeOptional = false)
     {
         GrammarBuilder G(params string[] words) { var gb = new GrammarBuilder(new Choices(words)) { Culture = culture }; return gb; }
         var all = new Choices();
@@ -127,7 +134,7 @@ public sealed class VoiceControl : IDisposable
         }
         foreach (var (key, phrases) in Commands) all.Add(new SemanticResultValue(G(phrases), key));
         var root = new GrammarBuilder { Culture = culture };
-        root.Append(G(WakeVariants(wake)));
+        if (wakeOptional) root.Append(new GrammarBuilder(G(WakeVariants(wake)), 0, 1) { Culture = culture }); else root.Append(G(WakeVariants(wake)));
         root.Append(new SemanticResultKey("cmd", all));
         return new Grammar(root) { Name = "ets2gps-commands" };
     }
@@ -137,28 +144,33 @@ public sealed class VoiceControl : IDisposable
         ?? SpeechRecognitionEngine.InstalledRecognizers().FirstOrDefault();
 
     /// <summary>Every full sentence the modern recognizer listens for, per command key (it takes plain phrase lists, not a grammar).</summary>
-    public static List<(string Key, List<string> Phrases)> PhraseLists(string wake)
+    public static List<(string Key, List<string> Phrases)> PhraseLists(string wake, bool wakeOptional = false)
     {
         var wakes = WakeVariants(wake);
+        if (wakeOptional) wakes = wakes.Append("").ToArray();   // push to talk: the bare command too
         var lists = new List<(string, List<string>)>();
         string[] leads = { "", "where is ", "find ", "find me ", "take me to ", "navigate to ", "go to ", "show me " };
         foreach (var (key, words) in PoiWords)
         {
             var l = new List<string>();
             foreach (var w in wakes) foreach (var lead in leads) foreach (var the in new[] { "", "the " }) foreach (var near in new[] { "nearest ", "closest " }) foreach (var word in words)
-                l.Add($"{w} {lead}{the}{near}{word}");
+                l.Add($"{w} {lead}{the}{near}{word}".Trim());
             lists.Add((key, l));
         }
         foreach (var (key, phrases) in Commands)
-            lists.Add((key, wakes.SelectMany(w => phrases.Select(ph => $"{w} {ph}")).ToList()));
+            lists.Add((key, wakes.SelectMany(w => phrases.Select(ph => $"{w} {ph}".Trim())).Distinct().ToList()));
         return lists;
     }
 
     /// <summary>Starts listening. Returns false (with <see cref="Problem"/> set) when there is no recognizer or microphone.</summary>
-    public bool Start(string wake, bool classicOnly = false)
+    /// <param name="pushToTalk">null to listen all the time (every command starts with the wake word); otherwise whether the push-to-talk button is open</param>
+    public bool Start(string wake, bool classicOnly = false, Func<bool>? pushToTalk = null)
     {
-        lock (gate) return StartLocked(wake, classicOnly);
+        lock (gate) { Gate = pushToTalk; return StartLocked(wake, classicOnly); }
     }
+
+    /// <summary>Starts again with the same settings (after the microphone was reset).</summary>
+    bool Restart(string wake) { lock (gate) return StartLocked(wake, true); }
 
     readonly object gate = new();   // Start runs on a worker thread; Start and Stop never overlap
 
@@ -184,7 +196,7 @@ public sealed class VoiceControl : IDisposable
             var rec = FindRecognizer();
             if (rec == null) { Problem = "No speech recognizer is installed in Windows (Settings > Time & language > Speech)."; return false; }
             var e = new SpeechRecognitionEngine(rec);
-            e.LoadGrammar(BuildGrammar(rec.Culture, Wake));
+            e.LoadGrammar(BuildGrammar(rec.Culture, Wake, WakeOptional));
             // the microphone as calls hear it (noise suppression, automatic gain); the plain default device when that cannot be opened
             string? micWhy;
             var cm = new CommsMic();
@@ -209,7 +221,7 @@ public sealed class VoiceControl : IDisposable
                             // no audio for 10 s: the microphone was reset (a setting changed, the device was unplugged); open it again
                             Log("microphone stopped: opening it again");
                             string w = Wake;
-                            _ = Task.Run(() => Start(w, classicOnly: true));
+                            _ = Task.Run(() => Restart(w));
                             break;
                         }
                         last = cm.Seconds;
@@ -239,7 +251,7 @@ public sealed class VoiceControl : IDisposable
     {
         modernProblem = null;
         var r = new Windows.Media.SpeechRecognition.SpeechRecognizer();
-        foreach (var (key, phrases) in PhraseLists(wake))
+        foreach (var (key, phrases) in PhraseLists(wake, WakeOptional))
             r.Constraints.Add(new Windows.Media.SpeechRecognition.SpeechRecognitionListConstraint(phrases, key));
         var comp = await r.CompileConstraintsAsync();
         if (comp.Status != Windows.Media.SpeechRecognition.SpeechRecognitionResultStatus.Success) { r.Dispose(); modernProblem = "commands: " + comp.Status; return; }
@@ -262,6 +274,7 @@ public sealed class VoiceControl : IDisposable
         {
             if (r.Status != Windows.Media.SpeechRecognition.SpeechRecognitionResultStatus.Success || r.Text.Length == 0) { Log("SPEECH NOT UNDERSTOOD"); return; }
             bool m = muted();
+            if (Closed(r.Text)) return;
             // "low" is accepted too: a correct command through a wireless microphone often scores low, and only a whole command phrase (wake word
             // included) can match at all, so ordinary speech does not get this far
             bool ok = r.Confidence != Windows.Media.SpeechRecognition.SpeechRecognitionConfidence.Rejected && r.RawConfidence >= MinModernConfidence;
@@ -299,7 +312,8 @@ public sealed class VoiceControl : IDisposable
     {
         try
         {
-            bool m = muted(), ok = Accept(e.Result, Wake, out float cc, out float wc);
+            if (Closed(e.Result.Text)) return;
+            bool m = muted(), ok = Accept(e.Result, Wake, WakeOptional, out float cc, out float wc);
             Log($"{(m ? "IGNORED (app speaking)" : ok ? "ACCEPTED" : "TOO UNSURE")}: \"{e.Result.Text}\" overall {e.Result.Confidence:0.00}, wake {wc:0.00}, command {cc:0.00}");
             if (m || !ok) return;
             if (e.Result.Semantics.ContainsKey("cmd") && e.Result.Semantics["cmd"].Value is string key) Command?.Invoke(key, e.Result.Text, e.Result.Confidence);
@@ -307,19 +321,30 @@ public sealed class VoiceControl : IDisposable
         catch { /* a bad result must never stop the listener */ }
     }
 
+    /// <summary>Push to talk: true (and logged) when the button was not held, so the result is dropped.</summary>
+    bool Closed(string text)
+    {
+        if (Gate is not { } g || g()) return false;
+        Log($"IGNORED (push-to-talk button not held): \"{text}\"");
+        return true;
+    }
+
     void OnRejected(object? sender, SpeechRecognitionRejectedEventArgs e)
     {
         // speech with no command phrase in it (talk, the radio) is not logged; only a near-miss on a command is
-        try { if (e.Result.Text.Length > 0 && !muted()) Log($"NOT A COMMAND: \"{e.Result.Text}\" overall {e.Result.Confidence:0.00}"); }
+        try { if (e.Result.Text.Length > 0 && !muted() && Gate?.Invoke() != false) Log($"NOT A COMMAND: \"{e.Result.Text}\" overall {e.Result.Confidence:0.00}"); }
         catch { }
     }
 
     /// <summary>What was heard and why it was or was not acted on, in voice_control.log next to the settings (no audio is kept).</summary>
+    /// <summary>Test: where the log goes instead of the settings folder.</summary>
+    public static string? LogDir;
+
     static void Log(string line)
     {
         try
         {
-            string p = Path.Combine(AppSettings.Dir, "voice_control.log");
+            string p = Path.Combine(LogDir ?? AppSettings.Dir, "voice_control.log");
             if (File.Exists(p) && new FileInfo(p).Length > 200_000) File.Delete(p);
             File.AppendAllText(p, DateTime.Now.ToString("HH:mm:ss ") + line + Environment.NewLine);
         }

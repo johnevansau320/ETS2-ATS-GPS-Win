@@ -445,7 +445,7 @@ public sealed partial class MainWindow
                 askAccept = () => NavigateToPickup(sel);
                 try
                 {
-                    Dlg.Message(this, "New job", text + (vctl?.Active == true ? $"\n\nSay \"{vctl.Wake}, take the job\" or \"{vctl.Wake}, not now\"." : ""),
+                    Dlg.Message(this, "New job", text + (vctl?.Active == true ? $"\n\nTo answer, {SayHint("take the job", "not now")}." : ""),
                         ("Not now", null, false), ("Navigate", () => NavigateToPickup(sel), true));
                 }
                 finally { askAccept = null; }
@@ -467,7 +467,7 @@ public sealed partial class MainWindow
             askAccept = () => NavigateToJob(t);
             try
             {
-                Dlg.Message(this, "New job", $"Navigate to {name}?" + (vctl?.Active == true ? $"\n\nSay \"{vctl.Wake}, take the job\" or \"{vctl.Wake}, not now\"." : ""),
+                Dlg.Message(this, "New job", $"Navigate to {name}?" + (vctl?.Active == true ? $"\n\nTo answer, {SayHint("take the job", "not now")}." : ""),
                     ("Not now", null, false), ("Navigate", () => NavigateToJob(t), true));
             }
             finally { askAccept = null; }

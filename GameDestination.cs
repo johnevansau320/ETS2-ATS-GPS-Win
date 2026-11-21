@@ -83,7 +83,7 @@ public sealed partial class MainWindow
         if (M.Hypot(motion.X - x, motion.Z - z) < 150f) return;                 // already there
         if (hasDest && M.Hypot(destX - x, destZ - z) < 80f) return;             // already going there
         string name = DescribePoint(x, z);
-        string say = vctl?.Active == true ? $"\n\nSay \"{vctl.Wake}, take the job\" or \"{vctl.Wake}, not now\"." : "";
+        string say = vctl?.Active == true ? $"\n\nTo answer, {SayHint("take the job", "not now")}." : "";
         askAccept = () => RouteToGameGps(s, name);
         try
         {

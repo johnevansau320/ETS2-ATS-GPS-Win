@@ -44,6 +44,10 @@ public sealed class AppSettings
     /// <summary>Listen on the microphone for spoken commands ("GPS, nearest fuel station"). Off by default; recognised on this PC, nothing is recorded or sent.</summary>
     public bool VoiceControl { get; set; } = false;
     public string VoiceWake { get; set; } = "GPS";
+    /// <summary>Push to talk: listen only while <see cref="VoicePttButton"/> is held, so background noise cannot set off commands; the wake word is then optional.</summary>
+    public bool VoicePushToTalk { get; set; } = false;
+    /// <summary>The push-to-talk button: "key:&lt;virtual key&gt;" or "joy:&lt;button&gt;:&lt;controller name&gt;" (see <see cref="PushToTalk"/>).</summary>
+    public string VoicePttButton { get; set; } = "";
     /// <summary>Speech recognizer for voice control: "classic" (the desktop one, reliable with any default microphone) or "modern"
     /// (Windows.Media.SpeechRecognition: better accuracy, but on some PCs it receives no audio inside the app).</summary>
     public string VoiceRecognizer { get; set; } = "classic";

@@ -443,6 +443,24 @@ public sealed partial class MainWindow
         sp.Children.Add(vcOn);
         sp.Children.Add(new TextBlock { Text = "Wake word (one or two simple words, default GPS)", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0) });
         var vcWake = Box(cfg.VoiceWake); vcWake.Width = 160; vcWake.HorizontalAlignment = HorizontalAlignment.Left; sp.Children.Add(vcWake);
+        var vcPtt = new CheckBox { Content = new TextBlock { Text = "Push to talk: listen only while a button is held, so background noise cannot set off commands. Hold the button, say the command (the wake word is not needed), then let go.", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.VoicePushToTalk && cfg.VoiceControl, Foreground = Brushes.White, Margin = new Thickness(0, 8, 0, 0) };
+        sp.Children.Add(vcPtt);
+        vcPtt.Checked += (_, _) => vcOn.IsChecked = true;   // push to talk needs voice control on
+        vcOn.Unchecked += (_, _) => vcPtt.IsChecked = false;
+        string pttButton = cfg.VoicePttButton;
+        var pttRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        var pttSet = Ui.Button("Set button", double.NaN, 32); pttSet.Padding = new Thickness(12, 0, 12, 0);
+        var pttName = new TextBlock { Text = "Button: " + PushToTalk.Describe(pttButton), Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), TextWrapping = TextWrapping.Wrap };
+        pttRow.Children.Add(pttSet); pttRow.Children.Add(pttName); sp.Children.Add(pttRow);
+        sp.Children.Add(new TextBlock { Text = "A keyboard key, a mouse side button, or a button on your steering wheel, joystick or button box. The game still sees the button, so choose one it does not use.", Foreground = Ui.Dim, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
+        pttSet.Click += async (_, _) =>
+        {
+            pttSet.IsEnabled = false; pttName.Text = "Press the key or wheel button now (Esc to cancel)...";
+            var b = await PushToTalk.CaptureAsync();
+            if (b != null) { pttButton = b; vcPtt.IsChecked = true; }
+            pttName.Text = "Button: " + PushToTalk.Describe(pttButton);
+            pttSet.IsEnabled = true;
+        };
         sp.Children.Add(new TextBlock { Text = "Commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer, take the job (or not now when a new job is offered), follow the game route, show job info, show the map, cancel the route, back to my route, how far, when do I arrive, what is next, speed limit, fuel level, lane guidance / cruise assist / voice guidance on or off.", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
 
         sp.Children.Add(H("Updates"));
@@ -504,7 +522,9 @@ public sealed partial class MainWindow
             Topmost = pin.IsChecked == true; cfg.Topmost = Topmost; UpdatePinButton();
             cfg.Opacity = Opacity;
             cfg.CheckUpdates = updAuto.IsChecked == true;
-            bool vcChanged = (vcOn.IsChecked == true) != cfg.VoiceControl || vcWake.Text.Trim() != cfg.VoiceWake;
+            bool vcChanged = (vcOn.IsChecked == true) != cfg.VoiceControl || vcWake.Text.Trim() != cfg.VoiceWake
+                || (vcPtt.IsChecked == true) != cfg.VoicePushToTalk || pttButton != cfg.VoicePttButton;
+            cfg.VoicePushToTalk = vcPtt.IsChecked == true; cfg.VoicePttButton = pttButton;
             cfg.VoiceControl = vcOn.IsChecked == true; cfg.VoiceWake = vcWake.Text.Trim().Length > 0 ? vcWake.Text.Trim() : "GPS";
             cfg.ShowLanes = showLanes.IsChecked == true; if (!cfg.ShowLanes) SetLaneUi(null);
             cfg.FollowGameGps = gameGps.IsChecked == true;

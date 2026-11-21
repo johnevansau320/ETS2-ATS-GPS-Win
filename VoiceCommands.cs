@@ -7,23 +7,47 @@ namespace Ets2Gps;
 public sealed partial class MainWindow
 {
     VoiceControl? vctl;
+    PushToTalk? ptt;
+    const string ListeningText = "Listening... say the command, then let go";
+
+    /// <summary>Push to talk is on and has a button.</summary>
+    bool PttOn => cfg.VoicePushToTalk && cfg.VoicePttButton.Length > 0;
+
+    /// <summary>How to say a command, for the hints on screen: "Say "GPS, take the job"" or "Hold F9 and say "take the job"".</summary>
+    string SayHint(params string[] commands) => PttOn
+        ? $"hold {PushToTalk.Describe(cfg.VoicePttButton)} and say " + string.Join(" or ", commands.Select(c => $"\"{c}\""))
+        : "say " + string.Join(" or ", commands.Select(c => $"\"{vctl?.Wake ?? "GPS"}, {c}\""));
     long lastVoiceCmdMs; string lastVoiceKey = "";
     Action? askAccept;   // a "navigate there?" question is on screen (a new job, or the game's GPS destination): what accepting it does
 
     /// <summary>Starts or stops listening to match the setting.</summary>
     void ApplyVoiceControl(bool announce)
     {
-        if (!cfg.VoiceControl) { vctl?.Stop(); return; }
+        if (!cfg.VoiceControl) { vctl?.Stop(); if (ptt != null) ptt.Binding = ""; return; }
         if (vctl == null) { vctl = new VoiceControl(() => voice.Busy); vctl.Command += OnVoiceCommand; }
         var v = vctl; string wake = cfg.VoiceWake; bool classic = cfg.VoiceRecognizer != "modern";
+        Func<bool>? gate = null;
+        if (PttOn && ptt == null)
+        {
+            // shows that the button is heard: "Listening..." while it is held
+            ptt = new PushToTalk();
+            ptt.Changed += held => Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (held) Toast(ListeningText);
+                else if (toastText.Text == ListeningText) toastBox.Visibility = Visibility.Collapsed;
+            }));
+        }
+        if (PttOn) { ptt!.Binding = cfg.VoicePttButton; var p = ptt; gate = () => p.Open; }
+        else if (ptt != null) ptt.Binding = "";
         // starting the recognizer takes a few seconds (it compiles the command list): off the UI thread
         Task.Run(() =>
         {
-            bool ok = v.Start(wake, classic);
+            bool ok = v.Start(wake, classic, gate);
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (!cfg.VoiceControl) { v.Stop(); return; }   // switched off meanwhile
-                if (ok) { if (announce) Toast($"Voice control on - say \"{v.Wake}\", then a command, for example \"{v.Wake}, help\""); }
+                if (ok && cfg.VoicePushToTalk && !PttOn) Toast($"Push to talk has no button yet (Settings > Voice control): listening for \"{v.Wake}\" meanwhile");
+                else if (ok) { if (announce) Toast(PttOn ? $"Voice control on (push to talk) - {SayHint("help")}" : $"Voice control on - say \"{v.Wake}\", then a command, for example \"{v.Wake}, help\""); }
                 else Toast(v.Problem ?? "Voice control could not start");
             }));
         });
@@ -181,7 +205,7 @@ public sealed partial class MainWindow
                 Reply(ClusterWindow(false) ? "Cluster restored." : "The instrument cluster is not running.");
                 break;
             case "help":
-                Reply($"Say {vctl?.Wake ?? "GPS"}, then: nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job, or not now when the new job question is on screen. Follow the game route, to go where the game's GPS is set. Show job info, or show the map, or back to navigation. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off. Minimize or restore, for this window and the instrument cluster, or name the GPS or the cluster.");
+                Reply((PttOn ? $"Hold {PushToTalk.Describe(cfg.VoicePttButton)} and say" : $"Say {vctl?.Wake ?? "GPS"}, then") + ": nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job, or not now when the new job question is on screen. Follow the game route, to go where the game's GPS is set. Show job info, or show the map, or back to navigation. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off. Minimize or restore, for this window and the instrument cluster, or name the GPS or the cluster.");
                 Toast("Voice commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer · take the job / not now · follow the game route · show job info · show the map · cancel the route · back to my route · how far · when do I arrive · what is next · speed limit · fuel level · lane guidance, cruise assist, voice guidance on/off · minimize / restore (the GPS, the cluster, or both)");
                 break;
         }
