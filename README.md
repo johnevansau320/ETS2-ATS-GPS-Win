@@ -113,6 +113,7 @@ Settings > **Voice control (microphone)** switches it on and sets the wake word 
 | nearest fuel station / rest area / service centre / weigh station / garage / truck dealer / ferry | Says how far and which way, and navigates there |
 | take the job | Navigates to the job's delivery point |
 | show job info / show the map (or back to navigation) | Opens or closes the Job Info screen |
+| recentre the map (or centre on the truck, follow the truck) | Puts the map back on your truck after you have dragged it away |
 | cancel the route / back to my route | Cancels, or returns to the route you had before a detour |
 | how far is it / when do I arrive / what is next / speed limit / fuel level | Spoken answers |
 | lane guidance, cruise assist, voice guidance on / off | Switches them |

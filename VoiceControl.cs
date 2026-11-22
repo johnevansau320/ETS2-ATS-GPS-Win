@@ -66,6 +66,8 @@ public sealed class VoiceControl : IDisposable
             "decline the job", "ignore the job", "skip the job", "don't navigate", "cancel", "close", "close the dialog" }),
         ("jobinfo", new[] { "show job info", "show the job info", "show job information", "open job info", "open the job info", "job info" }),
         ("map", new[] { "show the map", "back to the map", "return to the map", "show navigation", "back to navigation", "show the navigation screen", "close job info" }),
+        ("recentre", new[] { "recentre the map", "recenter the map", "recentre", "recenter", "centre the map", "center the map",
+            "centre on the truck", "center on the truck", "centre on my truck", "center on my truck", "follow the truck", "follow my truck" }),
         ("cancel", new[] { "cancel the route", "cancel route", "cancel navigation", "stop navigation", "clear the route" }),
         ("resume", new[] { "back to my route", "back to the route", "resume my route", "resume the route", "return to my route" }),
         ("far", new[] { "how far is it", "how far to go", "how far is the destination", "distance remaining" }),

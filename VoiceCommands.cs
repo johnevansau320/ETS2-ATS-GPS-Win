@@ -146,6 +146,14 @@ public sealed partial class MainWindow
                 if (WindowState == WindowState.Minimized) RestoreWindow();
                 Reply("Map.");
                 break;
+            case "recentre":
+                if (planning) { Reply("The trip planner is open."); return; }
+                if (tripOpen) ToggleTrip();
+                if (WindowState == WindowState.Minimized) RestoreWindow();
+                if (!mapView.Free) { Reply("The map is already following your truck."); return; }
+                mapView.Recentre();
+                Reply("Recentred.");
+                break;
             case "cancel":
                 if (askAccept != null) { Dlg.CloseOpen(); Reply("OK, not navigating there."); return; }
                 if (!hasDest) { Reply("There is no route to cancel."); return; }
@@ -205,8 +213,8 @@ public sealed partial class MainWindow
                 Reply(ClusterWindow(false) ? "Cluster restored." : "The instrument cluster is not running.");
                 break;
             case "help":
-                Reply((PttOn ? $"Hold {PushToTalk.Describe(cfg.VoicePttButton)} and say" : $"Say {vctl?.Wake ?? "GPS"}, then") + ": nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job, or not now when the new job question is on screen. Follow the game route, to go where the game's GPS is set. Show job info, or show the map, or back to navigation. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off. Minimize or restore, for this window and the instrument cluster, or name the GPS or the cluster.");
-                Toast("Voice commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer · take the job / not now · follow the game route · show job info · show the map · cancel the route · back to my route · how far · when do I arrive · what is next · speed limit · fuel level · lane guidance, cruise assist, voice guidance on/off · minimize / restore (the GPS, the cluster, or both)");
+                Reply((PttOn ? $"Hold {PushToTalk.Describe(cfg.VoicePttButton)} and say" : $"Say {vctl?.Wake ?? "GPS"}, then") + ": nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job, or not now when the new job question is on screen. Follow the game route, to go where the game's GPS is set. Show job info, or show the map, or back to navigation. Recentre the map. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off. Minimize or restore, for this window and the instrument cluster, or name the GPS or the cluster.");
+                Toast("Voice commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer · take the job / not now · follow the game route · show job info · show the map · recentre the map · cancel the route · back to my route · how far · when do I arrive · what is next · speed limit · fuel level · lane guidance, cruise assist, voice guidance on/off · minimize / restore (the GPS, the cluster, or both)");
                 break;
         }
     }
