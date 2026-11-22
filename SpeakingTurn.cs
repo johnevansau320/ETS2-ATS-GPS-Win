@@ -49,3 +49,26 @@ public sealed class SpeakingTurn : IDisposable
         _sem.Dispose();
     }
 }
+/// <summary>The GPS app's "I need to speak" flag (a shared named event). The GPS raises it as soon as it has a prompt and lowers it when the
+/// prompt ends; the dispatcher gives way while it is up, even mid-sentence, because a missed turn is worse than a late radio call.</summary>
+public sealed class GpsPriority : IDisposable
+{
+    public const string Name = @"Local\ETS2ATS-GpsSpeaking";
+
+    readonly EventWaitHandle _ev = new(false, EventResetMode.ManualReset, Name);
+
+    /// <summary>Null when the flag cannot be opened (e.g. access denied): both apps then work without it.</summary>
+    public static GpsPriority? TryCreate()
+    {
+        try { return new GpsPriority(); } catch { return null; }
+    }
+
+    public bool Raised
+    {
+        get { try { return _ev.WaitOne(0); } catch { return false; } }
+    }
+
+    public void Raise() { try { _ev.Set(); } catch { } }
+    public void Lower() { try { _ev.Reset(); } catch { } }
+    public void Dispose() { try { _ev.Dispose(); } catch { } }
+}

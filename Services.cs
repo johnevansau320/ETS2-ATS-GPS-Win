@@ -275,9 +275,34 @@ public sealed class Voice : IDisposable
 
     Turn? curTurn;
 
+    /// <summary>The "GPS needs to speak" flag the dispatcher gives way to. Owned by one utterance at a time, so a late end of an old prompt
+    /// can never lower the flag a newer prompt raised.</summary>
+    readonly GpsPriority? flag = GpsPriority.TryCreate();
+    readonly object flagGate = new();
+    int flagSeq = -1;
+
+    public Voice() => flag?.Lower();   // a GPS that crashed mid-prompt may have left it up
+
+    void RaiseFlag(int mySeq)
+    {
+        lock (flagGate) { flagSeq = mySeq; flag?.Raise(); }
+    }
+
+    /// <summary>Lowers the flag if utterance <paramref name="mySeq"/> raised it; any seq lowers it when <paramref name="any"/>.</summary>
+    void LowerFlag(int mySeq, bool any = false)
+    {
+        lock (flagGate)
+        {
+            if (!any && flagSeq != mySeq) return;
+            flagSeq = -1;
+            flag?.Lower();
+        }
+    }
+
     /// <summary>Ends the current turn if it belongs to utterance <paramref name="seq"/>; any other seq does nothing.</summary>
     void EndTurn(int seq)
     {
+        LowerFlag(seq);
         var u = Volatile.Read(ref curTurn);
         if (u == null || u.Seq != seq) return;
         if (Interlocked.CompareExchange(ref curTurn, null, u) == u) u.Finish();
@@ -306,6 +331,7 @@ public sealed class Voice : IDisposable
     {
         Interlocked.Increment(ref seq);
         try { Interlocked.Exchange(ref curTurn, null)?.Cancel(); } catch { }
+        LowerFlag(-1, any: true);
         try { tts?.SpeakAsyncCancelAll(); } catch { }
         try { if (player != null) { player.Pause(); player.Source = null; } } catch { }
         Interlocked.Exchange(ref pending, 0);
@@ -324,6 +350,7 @@ public sealed class Voice : IDisposable
             mySeq = Volatile.Read(ref seq);
             var turn = new Turn(mySeq);
             Volatile.Write(ref curTurn, turn);
+            RaiseFlag(mySeq);   // raised before synthesis, so the dispatcher does not start a line just as a prompt is coming
             if (vbName != null) _ = SpeakVoicebox(text, mySeq, turn);
             else if (modern != null) _ = SpeakModern(text, mySeq, turn);
             else if (tts != null) _ = SpeakClassic(text, mySeq, turn);
@@ -413,5 +440,5 @@ public sealed class Voice : IDisposable
         catch { return null; }
     }
 
-    public void Dispose() { try { Interlocked.Exchange(ref curTurn, null)?.Cancel(); } catch { } tts?.Dispose(); modern?.Dispose(); player?.Dispose(); }
+    public void Dispose() { try { Interlocked.Exchange(ref curTurn, null)?.Cancel(); } catch { } LowerFlag(-1, any: true); flag?.Dispose(); tts?.Dispose(); modern?.Dispose(); player?.Dispose(); }
 }
