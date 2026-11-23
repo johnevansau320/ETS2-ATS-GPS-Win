@@ -12,7 +12,7 @@ namespace Ets2Gps.MapBuilder;
 public static class BuildMap
 {
     /// <summary>Changes whenever the builder's output could change (it triggers an automatic rebuild).</summary>
-    public const int FormatVersion = 24;
+    public const int FormatVersion = 25;
     /// <summary>The binary layout the app reads.</summary>
     public const int FileVersion = 10;
 
@@ -21,6 +21,7 @@ public static class BuildMap
     static readonly UInt128 HudParking = Sii.StrToToken("hud_parking");
     // prefab spawn point types of a company yard
     const uint SpawnUnloadEasy = 2, SpawnCompany = 13, SpawnUnloadMedium = 19, SpawnUnloadHard = 20;
+    const uint SpawnGas = 3, SpawnGarage = 15;
     static readonly string[] NotRoundaboutWords = { "gas", "plaza", "parking", "depot", "service", "station", "tshape", "truckstop" };
 
     /// <summary>Overlay token such as "al_sh2", "at_e45", "b_a1" -> the text of the road-number shield ("SH 2", "E45", "A1"), or null for other overlays.</summary>
@@ -566,8 +567,10 @@ public static class BuildMap
             }
             if (!hid && !secret)
             {
+                // a player garage has a refuelling spot inside, but the game shows no fuel station there
+                bool garage = pf.Spawns.Any(sp => sp.Type == SpawnGarage);
                 foreach (var sp in pf.Spawns)
-                    if (SpawnPoi.TryGetValue(sp.Type, out int t)) { var q = Tf((sp.X, sp.Z)); pois.Add((t, q.X, q.Z)); }
+                    if (!(garage && sp.Type == SpawnGas) && SpawnPoi.TryGetValue(sp.Type, out int t)) { var q = Tf((sp.X, sp.Z)); pois.Add((t, q.X, q.Z)); }
                 var seenTrig = new HashSet<uint>();
                 foreach (var (tid, act, tx, tz) in pf.Triggers)
                     if (act == (ulong)HudParking && seenTrig.Add(tid)) { var q = Tf((tx, tz)); pois.Add((3, q.X, q.Z)); }
