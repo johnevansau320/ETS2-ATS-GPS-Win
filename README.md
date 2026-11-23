@@ -49,6 +49,13 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.13.0
+
+* **Push to talk for voice control**: Settings > Voice control can listen only while a button is held, so background noise and the game's sound cannot set off commands. Pick a keyboard key, a mouse side button, or a button on your steering wheel, joystick or button box with *Set button*. Hold it, say the command (no wake word needed), then let go. The game still sees the button, so choose one it does not use.
+* **Works with TS Dispatch**: when the [TS Dispatch](https://github.com/johnevansau320/TS-Dispatch) radio dispatcher runs on the same PC, the two take turns speaking instead of talking over each other, and the GPS always goes first: the dispatcher pauses mid-sentence for a GPS prompt and carries on afterwards.
+* **Voice control**: *recentre the map* (or *centre on the truck*, *follow the truck*) puts the map back on your truck after you have dragged it away.
+* **Map**: player garages no longer show a fuel icon (in ATS this removes over 300 false fuel stations). The map is rebuilt once, automatically, the first time 1.13.0 starts.
+
 ## New in 1.12.1
 
 * **New app icon** for the app, the setup program and the web version (browser tab and home-screen icon). Nothing else has changed.
@@ -106,7 +113,7 @@ Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Star
 
 ## Voice control
 
-Settings > **Voice control (microphone)** switches it on and sets the wake word (default `GPS`). Every command starts with the wake word, so ordinary speech and the game's sound do nothing, and the app does not listen while it is speaking itself. Recognition uses the speech recognizer built into Windows (English) on your PC: no audio is recorded, stored or sent anywhere.
+Settings > **Voice control (microphone)** switches it on and sets the wake word (default `GPS`). With **Push to talk** on, the app listens only while your chosen button is held and the wake word is not needed. Otherwise every command starts with the wake word, so ordinary speech and the game's sound do nothing, and the app does not listen while it is speaking itself. Recognition uses the speech recognizer built into Windows (English) on your PC: no audio is recorded, stored or sent anywhere.
 
 | Say "GPS, ..." | Does |
 |---|---|
